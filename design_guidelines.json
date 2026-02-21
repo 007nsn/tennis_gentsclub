@@ -1,0 +1,198 @@
+{
+  "design_system": {
+    "identity": {
+      "name": "Tennis Buddies Club",
+      "tone": "Energetic, Competitive, Social, Educational",
+      "archetype": "The Performance Pro (Softened with Vibrant Play)",
+      "theme_strategy": "Light Mode Dominant (Outdoor/Daytime feel)",
+      "key_principles": [
+        "Fusion over Imitation: Mix Scoreboard Aesthetics with Social Network warmth",
+        "Emotion First: Every screen should feel like 'Game Day'",
+        "Content is King: The Match Schedule is the hero",
+        "Contrast: High visibility (Outdoor legibility standards)"
+      ]
+    },
+    "typography": {
+      "font_family": {
+        "headings": "Barlow Condensed, sans-serif",
+        "body": "DM Sans, sans-serif",
+        "mono": "JetBrains Mono, monospace"
+      },
+      "weights": {
+        "headings": "800 (ExtraBold) or 900 (Black)",
+        "body": "400 (Regular) and 500 (Medium)"
+      },
+      "sizes": {
+        "h1": "text-6xl md:text-8xl tracking-tighter uppercase",
+        "h2": "text-4xl md:text-5xl tracking-tight uppercase",
+        "h3": "text-2xl md:text-3xl font-bold uppercase",
+        "body": "text-base md:text-lg leading-relaxed",
+        "caption": "text-xs tracking-widest uppercase font-mono"
+      },
+      "imports": [
+        "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=DM+Sans:opsz,wght@9..40,400;500;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      ]
+    },
+    "colors": {
+      "palette": {
+        "primary": {
+          "main": "#0051BA",
+          "hover": "#003E94",
+          "foreground": "#FFFFFF",
+          "description": "Deep Court Blue - The anchor color for headers and primary structures"
+        },
+        "secondary": {
+          "main": "#CCFF00",
+          "hover": "#B3E600",
+          "foreground": "#002040",
+          "description": "Volt / Tennis Ball Yellow - Use for Primary CTAs, Active States, and Highlights"
+        },
+        "accent": {
+          "main": "#E06040",
+          "hover": "#C04020",
+          "foreground": "#FFFFFF",
+          "description": "Clay Court Orange - Use for Alerts, Deconstructive actions, or 'Live' badges"
+        },
+        "neutral": {
+          "background": "#F8F9FA",
+          "surface": "#FFFFFF",
+          "border": "#E2E8F0",
+          "text_primary": "#0F172A",
+          "text_secondary": "#64748B"
+        }
+      },
+      "usage_rules": [
+        "Never use gradients for text",
+        "Use Volt Yellow for 'Play', 'Join', or 'Winner' states",
+        "Use Court Blue for 'Admin', 'Save', or 'Confirm' states",
+        "Backgrounds should be mostly White or very pale Grey (#F8F9FA)",
+        "Text on Volt Yellow must be Dark Blue/Black (#002040) for contrast"
+      ]
+    },
+    "layout": {
+      "spacing_scale": "Generous (2x standard). Use p-8 for cards, p-12 for sections.",
+      "container_styles": {
+        "marketing": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+        "dashboard": "max-w-full mx-auto px-4 sm:px-6 lg:px-8",
+        "bento_grid": "grid grid-cols-1 md:grid-cols-3 gap-6"
+      },
+      "border_radius": {
+        "buttons": "rounded-full (Pill shape)",
+        "cards": "rounded-xl",
+        "inputs": "rounded-lg"
+      },
+      "elevation": {
+        "card": "shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-shadow duration-300",
+        "floating": "shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
+      }
+    },
+    "components": {
+      "buttons": {
+        "primary": "bg-[#CCFF00] text-[#002040] hover:bg-[#B3E600] rounded-full font-bold uppercase tracking-wide px-8 py-3 shadow-sm hover:shadow-md transition-all",
+        "secondary": "bg-white border-2 border-[#0051BA] text-[#0051BA] hover:bg-[#0051BA] hover:text-white rounded-full font-bold uppercase tracking-wide px-8 py-3 transition-all",
+        "ghost": "text-[#0051BA] hover:bg-[#0051BA]/10 rounded-lg font-medium px-4 py-2"
+      },
+      "cards": {
+        "match_card": "bg-white border border-gray-100 rounded-xl p-6 relative overflow-hidden group",
+        "stat_card": "bg-gray-50 border-none rounded-2xl p-6 flex flex-col items-start justify-between"
+      },
+      "inputs": {
+        "default": "h-12 bg-white border-gray-200 focus:border-[#0051BA] focus:ring-2 focus:ring-[#0051BA]/20 rounded-lg transition-all"
+      },
+      "navigation": {
+        "style": "Floating island or solid sticky header",
+        "link_active": "text-[#0051BA] font-bold relative after:content-[''] after:absolute after:bottom-[-4px] after:left-0 after:w-full after:h-[2px] after:bg-[#CCFF00]"
+      }
+    },
+    "visual_enhancers": {
+      "textures": [
+        "Noise overlay (opacity 0.02) on all solid backgrounds",
+        "Subtle 'Net' pattern (crosshatch) for section backgrounds",
+        "Court Lines: White lines on colored backgrounds"
+      ],
+      "icons": {
+        "library": "lucide-react",
+        "style": "Stroke width 1.5px or 2px. Rounded caps."
+      },
+      "motion": {
+        "hover": "scale-[1.02] -translate-y-1",
+        "click": "scale-[0.98]",
+        "page_transition": "opacity-0 -> opacity-100 duration-500 ease-out"
+      }
+    },
+    "image_strategy": {
+      "style": "High shutter speed (frozen action), sunlight, harsh shadows, close-ups of equipment",
+      "overlay": "No dark overlays on full images. Use gradient fade from bottom if text is needed.",
+      "curated_urls": {
+        "hero_serving": {
+          "url": "https://images.unsplash.com/photo-1758314810669-346173121689?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHwxfHx0ZW5uaXMlMjBwbGF5ZXIlMjBzZXJ2aW5nJTIwYWN0aXZlfGVufDB8fHx8MTc3MTYzNTk1NXww&ixlib=rb-4.1.0&q=85",
+          "desc": "Artistic shadow of tennis player serving on clay. Use for Hero or Login."
+        },
+        "hero_court_aerial": {
+          "url": "https://images.unsplash.com/photo-1766255604833-6920695481e3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NjV8MHwxfHNlYXJjaHw0fHx0ZW5uaXMlMjBkb3VibGVzJTIwbWF0Y2glMjBjbGF5JTIwY291cnR8ZW58MHx8fHwxNzcxNjM1OTU2fDA&ixlib=rb-4.1.0&q=85",
+          "desc": "Aerial view of courts. Use for Schedule or Ladder background headers."
+        },
+        "coach_teaching": {
+          "url": "https://images.pexels.com/photos/35214654/pexels-photo-35214654.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "desc": "Coach instructing player. Use for Education/Coaching section."
+        },
+        "equipment_detail": {
+          "url": "https://images.unsplash.com/photo-1693614055184-97cdbe4ebd7a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwxfHx0ZW5uaXMlMjBhYnN0cmFjdCUyMGJhbGwlMjByYWNxdWV0JTIwY2xvc2UlMjB1cHxlbnwwfHx8fDE3NzE2MzU5NTh8MA&ixlib=rb-4.1.0&q=85",
+          "desc": "Tennis ball on net. Use for decorative cards or footer."
+        },
+        "doubles_action": {
+            "url": "https://images.pexels.com/photos/5739200/pexels-photo-5739200.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "desc": "Action shot of doubles play. Use for Landing Page 'Join Us' section."
+        }
+      }
+    },
+    "3d_strategy": {
+      "use_case": "Minimal. Use only if requested for 'Court Strategy' board.",
+      "library": "None required for MVP. Stick to high-quality 2D."
+    }
+  },
+  "implementation_instructions": {
+    "global_css_rules": [
+      "Import fonts in index.css",
+      "Set body background to #F8F9FA",
+      "Remove all default 'App.css' styles that center text",
+      "Ensure all buttons have hover states defined"
+    ],
+    "shadcn_customization": {
+      "radius": "0.5rem",
+      "colors": {
+        "primary": "0 0% 9% (Tailwind default is fine, but override with our Blue for specific components)",
+        "ring": "210 100% 36% (Blue ring focus)"
+      }
+    },
+    "accessibility": {
+      "contrast_check": "Ensure white text is only used on Dark Blue (#0051BA) or Black. Never on Yellow.",
+      "focus_states": "Visible thick outline (ring-2) for keyboard nav"
+    },
+    "testing": {
+      "attribute": "data-testid",
+      "format": "kebab-case (e.g., 'login-submit-btn', 'schedule-card-team-a')"
+    }
+  },
+  "universal_guidelines": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur)",
+    "You MUST NOT apply universal transition. Eg: transition: all. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file. This disrupts the human natural reading flow of text",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN",
+    "Prioritize using pre-existing components from src/components/ui when applicable",
+    "Create new components that match the style and conventions of existing components when needed",
+    "Examine existing components to understand the project's component patterns before creating new ones",
+    "Components MUST use named exports (export const ComponentName = ...)",
+    "Pages MUST use default exports (export default function PageName() {...})",
+    "Use sonner for toasts. Sonner component are located in /app/src/components/ui/sonner.tsx"
+  ]
+}
