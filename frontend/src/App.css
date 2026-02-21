@@ -1,34 +1,183 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* Tennis Buddies Club - Custom styles */
+
+/* Hero section gradient */
+.hero-gradient {
+    background: linear-gradient(135deg, #F8F9FA 0%, #EBF4FF 50%, #F8F9FA 100%);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Court lines decoration */
+.court-lines {
+    position: relative;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
+.court-lines::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Glass morphism */
+.glass {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+/* Floating navigation */
+.floating-nav {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+/* Match card */
+.match-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.match-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: #0051BA;
+}
+
+.match-card.live::before {
+    background: #CCFF00;
+    animation: pulse-glow 2s infinite;
+}
+
+/* Stat card */
+.stat-card {
+    background: linear-gradient(135deg, #F8F9FA 0%, #FFFFFF 100%);
+}
+
+/* Chat bubble */
+.chat-bubble-user {
+    background: #0051BA;
+    color: white;
+    border-radius: 20px 20px 4px 20px;
+}
+
+.chat-bubble-bot {
+    background: #F1F5F9;
+    color: #0F172A;
+    border-radius: 20px 20px 20px 4px;
+}
+
+/* Ladder position */
+.ladder-position {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 900;
+    font-size: 2rem;
+    color: #0051BA;
+}
+
+.ladder-position.gold {
+    color: #FFD700;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.ladder-position.silver {
+    color: #C0C0C0;
+}
+
+.ladder-position.bronze {
+    color: #CD7F32;
+}
+
+/* Education card */
+.education-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.education-card .category-badge {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+}
+
+/* Video thumbnail overlay */
+.video-thumbnail {
+    position: relative;
+}
+
+.video-thumbnail::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.6) 0%, transparent 50%);
+}
+
+.video-play-button {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+    z-index: 10;
+    transition: transform 0.3s ease, background-color 0.3s ease;
 }
 
-.App-link {
-    color: #61dafb;
+.video-thumbnail:hover .video-play-button {
+    transform: translate(-50%, -50%) scale(1.1);
+    background: #CCFF00;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
+/* Admin panel styles */
+.admin-sidebar {
+    background: #0F172A;
+}
+
+.admin-sidebar-link {
+    color: #94A3B8;
+    transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.admin-sidebar-link:hover,
+.admin-sidebar-link.active {
+    color: #FFFFFF;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Form input focus */
+input:focus,
+textarea:focus,
+select:focus {
+    outline: none;
+    border-color: #0051BA;
+    box-shadow: 0 0 0 3px rgba(0, 81, 186, 0.1);
+}
+
+/* Table striping */
+.table-striped tbody tr:nth-child(even) {
+    background-color: #F8F9FA;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .hero-text {
+        font-size: 3rem;
     }
-    to {
-        transform: rotate(360deg);
+    
+    .floating-nav {
+        padding: 0.75rem 1rem;
     }
 }
