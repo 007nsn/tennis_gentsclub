@@ -9,11 +9,11 @@ import time
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 
-# Test credentials
-ADMIN_EMAIL = "admin@tennis.com"
-ADMIN_PASSWORD = "admin123"
-MEMBER_EMAIL = "player@tennis.com"
-MEMBER_PASSWORD = "player123"
+# Test credentials (from environment or defaults for local testing)
+ADMIN_EMAIL = os.environ.get('TEST_ADMIN_EMAIL', 'admin@tennis.com')
+ADMIN_PASSWORD = os.environ.get('TEST_ADMIN_PASSWORD', 'admin123')
+MEMBER_EMAIL = os.environ.get('TEST_MEMBER_EMAIL', 'player@tennis.com')
+MEMBER_PASSWORD = os.environ.get('TEST_MEMBER_PASSWORD', 'player123')
 
 
 class TestAuthEndpoints:

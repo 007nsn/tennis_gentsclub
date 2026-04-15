@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -34,14 +34,22 @@ export default function StrategyBot() {
     const scrollRef = useRef(null);
     const inputRef = useRef(null);
 
+    const initSession = useCallback(async () => {
+        try {
+            const res = await newStrategySession();
+            setSessionId(res.data.session_id);
+        } catch (error) {
+            console.error('Error creating session:', error);
+        }
+    }, []);
+
     useEffect(() => {
         if (!user) {
             navigate('/login');
             return;
         }
-        // Create new session on mount
         initSession();
-    }, [user, navigate]);
+    }, [user, navigate, initSession]);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -51,15 +59,6 @@ export default function StrategyBot() {
             }
         }
     }, [messages]);
-
-    const initSession = async () => {
-        try {
-            const res = await newStrategySession();
-            setSessionId(res.data.session_id);
-        } catch (error) {
-            console.error('Error creating session:', error);
-        }
-    };
 
     const handleSend = async (text = input) => {
         if (!text.trim() || loading) return;
@@ -149,7 +148,7 @@ export default function StrategyBot() {
                         <div className="space-y-4">
                             {messages.map((msg, idx) => (
                                 <div
-                                    key={idx}
+                                    key={msg.role + '-' + idx}
                                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                     data-testid={`message-${idx}`}
                                 >
@@ -197,7 +196,7 @@ export default function StrategyBot() {
                             <div className="flex flex-wrap gap-2">
                                 {SUGGESTED_QUESTIONS.slice(0, 4).map((question, idx) => (
                                     <Badge
-                                        key={idx}
+                                        key={question}
                                         variant="outline"
                                         className="cursor-pointer hover:bg-[#0051BA]/10 hover:border-[#0051BA] transition-colors"
                                         onClick={() => handleSend(question)}

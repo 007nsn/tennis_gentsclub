@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -313,9 +314,16 @@ def create_token(user_id: str, role: str) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    token = None
+    if credentials:
+        token = credentials.credentials
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
@@ -505,7 +513,9 @@ async def register(user_data: UserCreate):
     await db.solo_players.insert_one(solo_player)
     
     token = create_token(user_id, role)
-    return {"token": token, "user": {"id": user_id, "email": user_data.email, "name": user_data.name, "role": role}}
+    response = JSONResponse(content={"token": token, "user": {"id": user_id, "email": user_data.email, "name": user_data.name, "role": role}})
+    response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="lax", max_age=86400 * 7)
+    return response
 
 @api_router.post("/auth/login", response_model=dict)
 async def login(credentials: UserLogin):
@@ -514,7 +524,15 @@ async def login(credentials: UserLogin):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     token = create_token(user["id"], user["role"])
-    return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}}
+    response = JSONResponse(content={"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}})
+    response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="lax", max_age=86400 * 7)
+    return response
+
+@api_router.post("/auth/logout")
+async def logout():
+    response = JSONResponse(content={"message": "Logged out"})
+    response.delete_cookie(key="access_token")
+    return response
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(user: dict = Depends(get_current_user)):
@@ -763,7 +781,7 @@ async def submit_match(match_data: MatchCreate, user: dict = Depends(get_current
     return MatchResponse(**match)
 
 @api_router.get("/matches", response_model=List[MatchResponse])
-async def get_matches(status: Optional[str] = None):
+async def get_matches(status: Optional[str] = Query(None, alias="status")):
     query = {}
     if status:
         query["status"] = status
@@ -1391,6 +1409,50 @@ Aim for angles to put the ball away. A cross-court volley is often more effectiv
 
 # ============ SEASON STANDINGS ============
 
+def calculate_player_season_stats(player: dict, matches: list) -> dict:
+    """Calculate cumulative season stats for a single player."""
+    total_matches = len(matches)
+    wins = 0
+    losses = 0
+    current_streak = 0
+    best_streak = 0
+    temp_streak = 0
+    last_result = None
+
+    for match in matches:
+        is_player_a = match["player_a_id"] == player["id"]
+        player_score = match["score_a"] if is_player_a else match["score_b"]
+        opponent_score = match["score_b"] if is_player_a else match["score_a"]
+        won = player_score > opponent_score
+
+        if won:
+            wins += 1
+            temp_streak = temp_streak + 1 if last_result == "W" else 1
+            last_result = "W"
+            current_streak = temp_streak
+        else:
+            losses += 1
+            temp_streak = temp_streak - 1 if last_result == "L" else -1
+            last_result = "L"
+            current_streak = temp_streak
+
+        if temp_streak > best_streak:
+            best_streak = temp_streak
+
+    win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
+
+    return {
+        "player_id": player["id"],
+        "player_name": player["name"],
+        "matches_played": total_matches,
+        "wins": wins,
+        "losses": losses,
+        "win_rate": round(win_rate, 1),
+        "current_streak": current_streak,
+        "best_streak": best_streak,
+        "points": wins
+    }
+
 @api_router.get("/season-standings")
 async def get_season_standings():
     """Get season standings with cumulative stats for all players"""
@@ -1398,63 +1460,14 @@ async def get_season_standings():
     standings = []
     
     for player in players:
-        # Get all matches for this player
         matches = await db.matches.find({
             "status": "approved",
             "match_type": "solo",
             "$or": [{"player_a_id": player["id"]}, {"player_b_id": player["id"]}]
         }, {"_id": 0}).sort("match_date", 1).to_list(500)
         
-        total_matches = len(matches)
-        wins = 0
-        losses = 0
-        current_streak = 0
-        best_streak = 0
-        temp_streak = 0
-        last_result = None
-        
-        for match in matches:
-            is_player_a = match["player_a_id"] == player["id"]
-            player_score = match["score_a"] if is_player_a else match["score_b"]
-            opponent_score = match["score_b"] if is_player_a else match["score_a"]
-            
-            won = player_score > opponent_score
-            
-            if won:
-                wins += 1
-                if last_result == "W":
-                    temp_streak += 1
-                else:
-                    temp_streak = 1
-                last_result = "W"
-                current_streak = temp_streak
-            else:
-                losses += 1
-                if last_result == "L":
-                    temp_streak -= 1
-                else:
-                    temp_streak = -1
-                last_result = "L"
-                current_streak = temp_streak
-            
-            if temp_streak > best_streak:
-                best_streak = temp_streak
-        
-        win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
-        
-        standings.append({
-            "player_id": player["id"],
-            "player_name": player["name"],
-            "matches_played": total_matches,
-            "wins": wins,
-            "losses": losses,
-            "win_rate": round(win_rate, 1),
-            "current_streak": current_streak,
-            "best_streak": best_streak,
-            "points": wins  # Each win = 1 point
-        })
+        standings.append(calculate_player_season_stats(player, matches))
     
-    # Sort by points (wins), then by win rate
     standings.sort(key=lambda x: (x["points"], x["win_rate"]), reverse=True)
     return standings
 
@@ -1485,6 +1498,33 @@ async def get_match_reminders():
     return reminders
 
 # ============ OPPONENT SCOUT (Gemini 3 Pro) ============
+
+def parse_scout_response(response_text: str) -> dict:
+    """Parse LLM response into structured strategy/tactics/warnings."""
+    strategy = ""
+    tactics = []
+    warnings = []
+    current_section = None
+
+    for line in response_text.split('\n'):
+        line = line.strip()
+        if line.startswith('STRATEGY:'):
+            current_section = 'strategy'
+            strategy = line.replace('STRATEGY:', '').strip()
+        elif line.startswith('TACTICS:'):
+            current_section = 'tactics'
+        elif line.startswith('WARNINGS:'):
+            current_section = 'warnings'
+        elif line.startswith(('\u2022', '-')):
+            item = line.lstrip('\u2022-').strip()
+            if current_section == 'tactics' and item:
+                tactics.append(item)
+            elif current_section == 'warnings' and item:
+                warnings.append(item)
+        elif current_section == 'strategy' and line:
+            strategy += ' ' + line
+
+    return {"strategy": strategy, "tactics": tactics, "warnings": warnings}
 
 DOUBLES_STRATEGY_SYSTEM_PROMPT = """You are an elite doubles tennis tactical coach, drawing from "The Doubles Code" and advanced doubles strategy principles. Your role is to analyze opponents and provide actionable match strategies.
 
@@ -1551,29 +1591,10 @@ WARNINGS:
         user_msg = UserMessage(text=prompt)
         response = await chat.send_message(user_msg)
         
-        # Parse response
-        strategy = ""
-        tactics = []
-        warnings = []
-        
-        current_section = None
-        for line in response.split('\n'):
-            line = line.strip()
-            if line.startswith('STRATEGY:'):
-                current_section = 'strategy'
-                strategy = line.replace('STRATEGY:', '').strip()
-            elif line.startswith('TACTICS:'):
-                current_section = 'tactics'
-            elif line.startswith('WARNINGS:'):
-                current_section = 'warnings'
-            elif line.startswith('•') or line.startswith('-'):
-                item = line.lstrip('•-').strip()
-                if current_section == 'tactics' and item:
-                    tactics.append(item)
-                elif current_section == 'warnings' and item:
-                    warnings.append(item)
-            elif current_section == 'strategy' and line:
-                strategy += ' ' + line
+        parsed = parse_scout_response(response)
+        strategy = parsed["strategy"]
+        tactics = parsed["tactics"]
+        warnings = parsed["warnings"]
         
         # Store scout report
         await db.scout_reports.insert_one({

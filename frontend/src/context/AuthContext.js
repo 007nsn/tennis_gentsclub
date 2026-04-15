@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { getMe } from '../lib/api';
 
 const AuthContext = createContext(null);
@@ -8,12 +8,11 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const token = localStorage.getItem('token');
         const storedUser = localStorage.getItem('user');
         
-        if (token && storedUser) {
+        if (storedUser) {
             setUser(JSON.parse(storedUser));
-            // Verify token is still valid
+            // Verify token is still valid (cookie-based)
             getMe()
                 .then(res => {
                     setUser(res.data);
@@ -30,22 +29,27 @@ export const AuthProvider = ({ children }) => {
         }
     }, []);
 
-    const loginUser = (token, userData) => {
+    const loginUser = useCallback((token, userData) => {
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
-    };
+    }, []);
 
-    const logout = () => {
+    const logout = useCallback(() => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         setUser(null);
-    };
+    }, []);
 
     const isAdmin = user?.role === 'admin';
 
+    const value = useMemo(
+        () => ({ user, loading, loginUser, logout, isAdmin }),
+        [user, loading, loginUser, logout, isAdmin]
+    );
+
     return (
-        <AuthContext.Provider value={{ user, loading, loginUser, logout, isAdmin }}>
+        <AuthContext.Provider value={value}>
             {children}
         </AuthContext.Provider>
     );

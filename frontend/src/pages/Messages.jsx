@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -21,21 +21,7 @@ export default function Messages() {
     const [users, setUsers] = useState([]);
     const scrollRef = useRef(null);
 
-    useEffect(() => {
-        if (!user) {
-            navigate('/login');
-            return;
-        }
-        loadData();
-    }, [user, navigate]);
-
-    useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [messages]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         try {
             const [messagesRes, usersRes] = await Promise.all([
                 getMessages(),
@@ -46,7 +32,7 @@ export default function Messages() {
 
             // Mark unread messages as read
             for (const msg of messagesRes.data) {
-                if (!msg.read && msg.recipient_id === user.id) {
+                if (!msg.read && msg.recipient_id === user?.id) {
                     await markMessageRead(msg.id);
                 }
             }
@@ -55,7 +41,15 @@ export default function Messages() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [user?.id]);
+
+    useEffect(() => {
+        if (!user) {
+            navigate('/login');
+            return;
+        }
+        loadData();
+    }, [user, navigate, loadData]);
 
     const handleSend = async () => {
         if (!newMessage.trim() || sending) return;

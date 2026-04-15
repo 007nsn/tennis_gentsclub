@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -15,15 +15,7 @@ export default function MatchHistory() {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('history');
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    useEffect(() => {
-        loadMatches();
-    }, [selectedPlayer]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         try {
             const [statsRes, playersRes] = await Promise.all([
                 getAllPlayerStats(),
@@ -36,9 +28,9 @@ export default function MatchHistory() {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    const loadMatches = async () => {
+    const loadMatches = useCallback(async () => {
         try {
             const playerId = selectedPlayer === 'all' ? undefined : selectedPlayer;
             const res = await getMatchHistory(playerId);
@@ -46,7 +38,15 @@ export default function MatchHistory() {
         } catch (error) {
             console.error('Error loading matches:', error);
         }
-    };
+    }, [selectedPlayer]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    useEffect(() => {
+        loadMatches();
+    }, [loadMatches]);
 
     const getWinnerName = (match) => {
         if (match.match_type === 'team') {
@@ -218,7 +218,7 @@ export default function MatchHistory() {
                                                 <p className="text-xs text-gray-500 mb-2">Recent Form</p>
                                                 <div className="flex gap-1">
                                                     {stat.recent_form.map((result, i) => (
-                                                        <span key={i}>{getFormBadge(result)}</span>
+                                                        <span key={`${stat.player_id}-form-${i}`}>{getFormBadge(result)}</span>
                                                     ))}
                                                 </div>
                                             </div>

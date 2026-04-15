@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -20,6 +20,17 @@ export default function Chatroom() {
     const scrollRef = useRef(null);
     const pollInterval = useRef(null);
 
+    const loadMessages = useCallback(async () => {
+        try {
+            const res = await getChatroomMessages(100);
+            setMessages(res.data);
+        } catch (error) {
+            console.error('Error loading messages:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
     useEffect(() => {
         if (!user) {
             navigate('/login');
@@ -35,27 +46,7 @@ export default function Chatroom() {
                 clearInterval(pollInterval.current);
             }
         };
-    }, [user, navigate]);
-
-    useEffect(() => {
-        if (scrollRef.current) {
-            const scrollElement = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
-            if (scrollElement) {
-                scrollElement.scrollTop = scrollElement.scrollHeight;
-            }
-        }
-    }, [messages]);
-
-    const loadMessages = async () => {
-        try {
-            const res = await getChatroomMessages(100);
-            setMessages(res.data);
-        } catch (error) {
-            console.error('Error loading messages:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+    }, [user, navigate, loadMessages]);
 
     const handleSend = async () => {
         if (!newMessage.trim() || sending) return;

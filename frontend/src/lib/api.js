@@ -8,9 +8,10 @@ const api = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
+    withCredentials: true,
 });
 
-// Add auth token to requests
+// Add auth token to requests (fallback for non-cookie auth)
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem('token');
     if (token) {

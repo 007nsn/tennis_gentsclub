@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -14,11 +14,7 @@ export default function Home() {
     const [announcements, setAnnouncements] = useState([]);
     const [stats, setStats] = useState({ total_members: 0, total_teams: 0, total_matches: 0 });
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         try {
             const [schedulesRes, teamsRes, announcementsRes, statsRes] = await Promise.all([
                 getSchedules(),
@@ -33,7 +29,11 @@ export default function Home() {
         } catch (error) {
             console.error('Error loading data:', error);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
 
     const features = [
         {
@@ -185,7 +185,7 @@ export default function Home() {
                     </div>
                     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
                         {features.map((feature, idx) => (
-                            <Link to={feature.link} key={idx}>
+                            <Link to={feature.link} key={feature.link}>
                                 <Card className="card-hover h-full border-none bg-white shadow-[0_2px_8px_rgba(0,0,0,0.04)] group" data-testid={`feature-card-${idx}`}>
                                     <CardContent className="p-6">
                                         <div className={`w-12 h-12 ${feature.color} rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>

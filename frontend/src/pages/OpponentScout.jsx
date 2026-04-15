@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -27,22 +27,22 @@ export default function OpponentScout() {
         additional_notes: ''
     });
 
-    useEffect(() => {
-        if (!user) {
-            navigate('/login');
-            return;
-        }
-        loadReports();
-    }, [user, navigate]);
-
-    const loadReports = async () => {
+    const loadReports = useCallback(async () => {
         try {
             const res = await getScoutReports();
             setReports(res.data);
         } catch (error) {
             console.error('Error loading reports:', error);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        if (!user) {
+            navigate('/login');
+            return;
+        }
+        loadReports();
+    }, [user, navigate, loadReports]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -238,8 +238,8 @@ export default function OpponentScout() {
                                                 Key Tactics
                                             </h4>
                                             <ul className="space-y-2">
-                                                {currentStrategy.key_tactics.map((tactic, idx) => (
-                                                    <li key={idx} className="flex items-start gap-2">
+                                                {currentStrategy.key_tactics.map((tactic) => (
+                                                    <li key={tactic} className="flex items-start gap-2">
                                                         <Badge className="bg-green-100 text-green-800 mt-0.5">{idx + 1}</Badge>
                                                         <span className="text-gray-700">{tactic}</span>
                                                     </li>
@@ -254,8 +254,8 @@ export default function OpponentScout() {
                                                 Watch Out For
                                             </h4>
                                             <ul className="space-y-1">
-                                                {currentStrategy.warnings.map((warning, idx) => (
-                                                    <li key={idx} className="text-amber-700 flex items-start gap-2">
+                                                {currentStrategy.warnings.map((warning) => (
+                                                    <li key={warning} className="text-amber-700 flex items-start gap-2">
                                                         <span>•</span>
                                                         <span>{warning}</span>
                                                     </li>

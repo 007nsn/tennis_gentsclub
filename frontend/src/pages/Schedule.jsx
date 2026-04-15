@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Calendar, Clock, MapPin, Users } from 'lucide-react';
@@ -10,11 +10,7 @@ export default function Schedule() {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadSchedules();
-    }, []);
-
-    const loadSchedules = async () => {
+    const loadSchedules = useCallback(async () => {
         try {
             const response = await getSchedules();
             setSchedules(response.data);
@@ -23,9 +19,25 @@ export default function Schedule() {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        loadSchedules();
+    }, [loadSchedules]);
 
     const scheduleDates = schedules.map(s => new Date(s.match_date).toDateString());
+
+    const calendarModifiers = useMemo(() => ({
+        hasMatch: (date) => scheduleDates.includes(date.toDateString())
+    }), [scheduleDates]);
+
+    const calendarModifierStyles = useMemo(() => ({
+        hasMatch: {
+            backgroundColor: '#CCFF00',
+            color: '#002040',
+            fontWeight: 'bold'
+        }
+    }), []);
     
     const filteredSchedules = schedules.filter(s => 
         new Date(s.match_date).toDateString() === selectedDate.toDateString()
@@ -58,16 +70,8 @@ export default function Schedule() {
                                 selected={selectedDate}
                                 onSelect={(date) => date && setSelectedDate(date)}
                                 className="rounded-lg"
-                                modifiers={{
-                                    hasMatch: (date) => scheduleDates.includes(date.toDateString())
-                                }}
-                                modifiersStyles={{
-                                    hasMatch: { 
-                                        backgroundColor: '#CCFF00', 
-                                        color: '#002040',
-                                        fontWeight: 'bold'
-                                    }
-                                }}
+                                modifiers={calendarModifiers}
+                                modifiersStyles={calendarModifierStyles}
                             />
                         </CardContent>
                     </Card>
@@ -112,8 +116,8 @@ export default function Schedule() {
                                                 </div>
                                                 {schedule.teams && schedule.teams.length > 0 && (
                                                     <div className="flex flex-wrap gap-2">
-                                                        {schedule.teams.map((team, idx) => (
-                                                            <Badge key={idx} variant="outline" className="border-[#0051BA] text-[#0051BA]">
+                                                        {schedule.teams.map((team) => (
+                                                            <Badge key={team} variant="outline" className="border-[#0051BA] text-[#0051BA]">
                                                                 <Users className="w-3 h-3 mr-1" />
                                                                 {team}
                                                             </Badge>
