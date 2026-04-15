@@ -372,7 +372,7 @@ export default function Admin() {
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                             <CardHeader>
                                 <CardTitle>Generate Round Robin Schedule</CardTitle>
-                                <CardDescription>Auto-generate doubles matches based on availability</CardDescription>
+                                <CardDescription>Auto-generate tournament matches with court assignments based on availability</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="space-y-2">
@@ -403,15 +403,12 @@ export default function Admin() {
                                     </div>
                                 )}
 
-                                <div className="flex gap-2">
-                                    <Button onClick={handleGenerateRoundRobin} disabled={loading || !selectedSunday} className="btn-primary flex-1">
-                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Generate Round Robin'}
-                                    </Button>
-                                    <Button variant="outline" onClick={() => handleSendReminder(selectedSunday)} disabled={!selectedSunday}>
-                                        <Mail className="w-4 h-4 mr-2" />
-                                        Send Reminder
-                                    </Button>
-                                </div>
+                                <Button onClick={handleGenerateRoundRobin} disabled={loading || !selectedSunday} className="btn-primary w-full">
+                                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Generate Round Robin & Court Assignments'}
+                                </Button>
+                                <p className="text-xs text-gray-500 text-center">
+                                    Each player plays against every other player once. Schedule will be posted to the chatroom.
+                                </p>
                             </CardContent>
                         </Card>
 

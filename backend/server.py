@@ -206,7 +206,7 @@ class AvailabilityResponse(BaseModel):
     available: bool
     confirmed_at: str
 
-# Message models (Player to Admin)
+# Message models (Player to Admin - kept for direct messages)
 class MessageCreate(BaseModel):
     content: str
     recipient_id: Optional[str] = None  # If None, goes to admin
@@ -220,6 +220,29 @@ class MessageResponse(BaseModel):
     content: str
     read: bool = False
     created_at: str
+
+# Chatroom models (Group chat for all members)
+class ChatroomMessageCreate(BaseModel):
+    content: str
+
+class ChatroomMessageResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    sender_id: str
+    sender_name: str
+    sender_role: str
+    content: str
+    created_at: str
+
+# Match History / Player Stats
+class PlayerStatsResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    player_id: str
+    player_name: str
+    total_matches: int
+    wins: int
+    win_rate: float
+    recent_form: List[str]  # Last 5 results: W/L
 
 # Round Robin Generation
 class RoundRobinRequest(BaseModel):
@@ -325,45 +348,56 @@ def get_email_template(title: str, content: str, button_text: str = None, button
 
 # ============ ROUND ROBIN ALGORITHM ============
 
-def generate_round_robin_doubles(players: List[dict], num_courts: int):
+def generate_round_robin_schedule(players: List[dict], num_courts: int):
     """
-    Generate round robin doubles matches where partners rotate.
-    Each player plays with every other player as a partner at least once.
+    Generate Round Robin tournament schedule.
+    Each player plays against every other player once.
     Returns list of matches with court assignments.
     """
-    if len(players) < 4:
+    if len(players) < 2:
         return []
     
     matches = []
-    player_ids = [p["id"] for p in players]
-    player_names = {p["id"]: p["name"] for p in players}
+    player_list = list(players)
+    n = len(player_list)
     
-    # Generate all possible pairs (teams of 2)
-    all_pairs = list(combinations(player_ids, 2))
+    # If odd number of players, add a "bye"
+    if n % 2 == 1:
+        player_list.append({"id": "bye", "name": "BYE", "user_id": "bye"})
+        n += 1
     
-    # Generate matches: each pair of pairs that don't share players
+    # Generate all matchups using circle method
     match_id = 0
-    used_pairs = set()
+    num_rounds = n - 1
     
-    for i, pair1 in enumerate(all_pairs):
-        for pair2 in all_pairs[i+1:]:
-            # Check if pairs share any player
-            if set(pair1).isdisjoint(set(pair2)):
-                pair_key = (frozenset(pair1), frozenset(pair2))
-                reverse_key = (frozenset(pair2), frozenset(pair1))
-                if pair_key not in used_pairs and reverse_key not in used_pairs:
-                    used_pairs.add(pair_key)
-                    team1_names = f"{player_names[pair1[0]]} & {player_names[pair1[1]]}"
-                    team2_names = f"{player_names[pair2[0]]} & {player_names[pair2[1]]}"
-                    matches.append({
-                        "match_id": match_id,
-                        "team1": list(pair1),
-                        "team2": list(pair2),
-                        "team1_names": team1_names,
-                        "team2_names": team2_names,
-                        "court": (match_id % num_courts) + 1
-                    })
-                    match_id += 1
+    for round_num in range(num_rounds):
+        round_matches = []
+        for i in range(n // 2):
+            p1_idx = i
+            p2_idx = n - 1 - i
+            
+            p1 = player_list[p1_idx]
+            p2 = player_list[p2_idx]
+            
+            # Skip bye matches
+            if p1["id"] == "bye" or p2["id"] == "bye":
+                continue
+            
+            round_matches.append({
+                "match_id": match_id,
+                "round": round_num + 1,
+                "player1_id": p1["id"],
+                "player2_id": p2["id"],
+                "player1_name": p1["name"],
+                "player2_name": p2["name"],
+                "court": (len(round_matches) % num_courts) + 1
+            })
+            match_id += 1
+        
+        matches.extend(round_matches)
+        
+        # Rotate players (keep first player fixed)
+        player_list = [player_list[0]] + [player_list[-1]] + player_list[1:-1]
     
     return matches
 
@@ -590,19 +624,19 @@ async def get_upcoming_sundays():
 # ============ ROUND ROBIN GENERATION ============
 
 @api_router.post("/schedules/generate-round-robin")
-async def generate_round_robin_schedule(request: RoundRobinRequest, admin: dict = Depends(get_admin_user)):
+async def generate_round_robin_schedule_endpoint(request: RoundRobinRequest, admin: dict = Depends(get_admin_user)):
     # Get available players for the date
     available = await db.availability.find({"date": request.date, "available": True}, {"_id": 0}).to_list(100)
     
-    if len(available) < 4:
-        raise HTTPException(status_code=400, detail="Need at least 4 available players for doubles round robin")
+    if len(available) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 available players for round robin")
     
     # Get player details
     player_ids = [a["user_id"] for a in available]
     players = await db.solo_players.find({"user_id": {"$in": player_ids}}, {"_id": 0}).to_list(100)
     
-    # Generate matches
-    matches = generate_round_robin_doubles(players, request.num_courts)
+    # Generate Round Robin matches
+    matches = generate_round_robin_schedule(players, request.num_courts)
     matches = assign_time_slots(matches, request.start_time, request.match_duration_minutes, request.num_courts)
     
     # Get settings
@@ -614,7 +648,7 @@ async def generate_round_robin_schedule(request: RoundRobinRequest, admin: dict 
     schedule = {
         "id": schedule_id,
         "title": f"Sunday Round Robin - {request.date}",
-        "description": f"Auto-generated round robin with {len(players)} players on {request.num_courts} courts",
+        "description": f"Round Robin tournament with {len(players)} players on {request.num_courts} courts",
         "match_date": request.date,
         "match_time": request.start_time,
         "location": location,
@@ -624,20 +658,16 @@ async def generate_round_robin_schedule(request: RoundRobinRequest, admin: dict 
     }
     await db.schedules.insert_one(schedule)
     
-    # Send email notifications to available players
-    for avail in available:
-        user = await db.users.find_one({"id": avail["user_id"]}, {"_id": 0})
-        if user and user.get("email"):
-            await send_email(
-                user["email"],
-                f"Sunday Match Schedule - {request.date}",
-                get_email_template(
-                    "Your Match Schedule is Ready!",
-                    f"The round robin schedule for {request.date} has been generated. Check the app for your match times and court assignments.",
-                    "View Schedule",
-                    "https://match-mixer.preview.emergentagent.com/schedule"
-                )
-            )
+    # Post to chatroom about the schedule
+    chatroom_msg = {
+        "id": str(uuid.uuid4()),
+        "sender_id": admin["id"],
+        "sender_name": admin["name"],
+        "sender_role": "admin",
+        "content": f"📅 Round Robin schedule for {request.date} is ready! {len(players)} players, {len(matches)} matches across {request.num_courts} courts. Check the Schedule page for details!",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.chatroom.insert_one(chatroom_msg)
     
     return {"schedule_id": schedule_id, "matches": matches, "player_count": len(players)}
 
@@ -910,6 +940,130 @@ async def mark_message_read(msg_id: str, user: dict = Depends(get_current_user))
 async def get_unread_count(user: dict = Depends(get_current_user)):
     count = await db.messages.count_documents({"recipient_id": user["id"], "read": False})
     return {"count": count}
+
+# ============ CHATROOM (Group Chat) ============
+
+@api_router.post("/chatroom", response_model=ChatroomMessageResponse)
+async def send_chatroom_message(msg_data: ChatroomMessageCreate, user: dict = Depends(get_current_user)):
+    msg_id = str(uuid.uuid4())
+    message = {
+        "id": msg_id,
+        "sender_id": user["id"],
+        "sender_name": user["name"],
+        "sender_role": user["role"],
+        "content": msg_data.content,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.chatroom.insert_one(message)
+    return ChatroomMessageResponse(**message)
+
+@api_router.get("/chatroom", response_model=List[ChatroomMessageResponse])
+async def get_chatroom_messages(limit: int = 100, user: dict = Depends(get_current_user)):
+    messages = await db.chatroom.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return [ChatroomMessageResponse(**m) for m in reversed(messages)]
+
+# ============ MATCH HISTORY & PLAYER STATS ============
+
+@api_router.get("/match-history")
+async def get_match_history(player_id: Optional[str] = None):
+    """Get all approved matches, optionally filtered by player"""
+    query = {"status": "approved"}
+    
+    if player_id:
+        query["$or"] = [
+            {"player_a_id": player_id},
+            {"player_b_id": player_id}
+        ]
+    
+    matches = await db.matches.find(query, {"_id": 0}).sort("match_date", -1).to_list(500)
+    return matches
+
+@api_router.get("/player-stats/{player_id}", response_model=PlayerStatsResponse)
+async def get_player_stats(player_id: str):
+    """Get detailed stats for a specific player"""
+    player = await db.solo_players.find_one({"id": player_id}, {"_id": 0})
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    
+    # Get all matches for this player
+    matches = await db.matches.find({
+        "status": "approved",
+        "match_type": "solo",
+        "$or": [{"player_a_id": player_id}, {"player_b_id": player_id}]
+    }, {"_id": 0}).sort("match_date", -1).to_list(500)
+    
+    total_matches = len(matches)
+    wins = 0
+    recent_form = []
+    
+    for match in matches:
+        is_player_a = match["player_a_id"] == player_id
+        player_score = match["score_a"] if is_player_a else match["score_b"]
+        opponent_score = match["score_b"] if is_player_a else match["score_a"]
+        
+        if player_score > opponent_score:
+            wins += 1
+            if len(recent_form) < 5:
+                recent_form.append("W")
+        else:
+            if len(recent_form) < 5:
+                recent_form.append("L")
+    
+    win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
+    
+    return PlayerStatsResponse(
+        player_id=player_id,
+        player_name=player["name"],
+        total_matches=total_matches,
+        wins=wins,
+        win_rate=round(win_rate, 1),
+        recent_form=recent_form
+    )
+
+@api_router.get("/player-stats")
+async def get_all_player_stats():
+    """Get stats for all players"""
+    players = await db.solo_players.find({}, {"_id": 0}).to_list(100)
+    stats = []
+    
+    for player in players:
+        matches = await db.matches.find({
+            "status": "approved",
+            "match_type": "solo",
+            "$or": [{"player_a_id": player["id"]}, {"player_b_id": player["id"]}]
+        }, {"_id": 0}).to_list(500)
+        
+        total_matches = len(matches)
+        wins = 0
+        recent_form = []
+        
+        for match in matches:
+            is_player_a = match["player_a_id"] == player["id"]
+            player_score = match["score_a"] if is_player_a else match["score_b"]
+            opponent_score = match["score_b"] if is_player_a else match["score_a"]
+            
+            if player_score > opponent_score:
+                wins += 1
+                if len(recent_form) < 5:
+                    recent_form.append("W")
+            else:
+                if len(recent_form) < 5:
+                    recent_form.append("L")
+        
+        win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
+        
+        stats.append({
+            "player_id": player["id"],
+            "player_name": player["name"],
+            "total_matches": total_matches,
+            "wins": wins,
+            "win_rate": round(win_rate, 1),
+            "recent_form": recent_form
+        })
+    
+    # Sort by wins descending
+    stats.sort(key=lambda x: x["wins"], reverse=True)
+    return stats
 
 # ============ ANNOUNCEMENTS ROUTES ============
 

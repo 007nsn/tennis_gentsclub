@@ -17,7 +17,8 @@ import SubmitResult from "./pages/SubmitResult";
 import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
 import Availability from "./pages/Availability";
-import Messages from "./pages/Messages";
+import Chatroom from "./pages/Chatroom";
+import MatchHistory from "./pages/MatchHistory";
 
 function App() {
   return (
@@ -31,13 +32,14 @@ function App() {
             <Route path="/schedule" element={<Schedule />} />
             <Route path="/team-ladder" element={<TeamLadder />} />
             <Route path="/solo-ladder" element={<SoloLadder />} />
+            <Route path="/match-history" element={<MatchHistory />} />
             <Route path="/education" element={<Education />} />
             <Route path="/education/:id" element={<ArticleDetail />} />
             <Route path="/submit-result" element={<SubmitResult />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/availability" element={<Availability />} />
-            <Route path="/messages" element={<Messages />} />
+            <Route path="/chatroom" element={<Chatroom />} />
           </Routes>
         </Layout>
         <Toaster position="top-right" richColors />

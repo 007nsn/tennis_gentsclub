@@ -20,7 +20,9 @@ const navLinks = [
     { path: '/schedule', label: 'Schedule', icon: Calendar },
     { path: '/team-ladder', label: 'Team Ladder', icon: Trophy },
     { path: '/solo-ladder', label: 'Solo Ladder', icon: Users },
+    { path: '/match-history', label: 'History', icon: Trophy },
     { path: '/education', label: 'Learn', icon: BookOpen },
+    { path: '/chatroom', label: 'Chat', icon: MessageCircle, authRequired: true },
     { path: '/availability', label: 'Availability', icon: Calendar, authRequired: true },
 ];
 
@@ -110,12 +112,6 @@ export const Layout = ({ children }) => {
                                                 <Link to="/submit-result" className="flex items-center gap-2" data-testid="submit-result-link">
                                                     <Trophy className="w-4 h-4" />
                                                     Submit Result
-                                                </Link>
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem asChild>
-                                                <Link to="/messages" className="flex items-center gap-2" data-testid="messages-link">
-                                                    <MessageCircle className="w-4 h-4" />
-                                                    Messages
                                                 </Link>
                                             </DropdownMenuItem>
                                             {isAdmin && (

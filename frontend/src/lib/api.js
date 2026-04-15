@@ -82,11 +82,20 @@ export const setAvailability = (data) => api.post('/availability', data);
 export const getAvailability = (date) => api.get('/availability', { params: { date } });
 export const getUpcomingSundays = () => api.get('/availability/upcoming-sundays');
 
-// Messages
+// Messages (Direct)
 export const sendMessage = (data) => api.post('/messages', data);
 export const getMessages = () => api.get('/messages');
 export const markMessageRead = (id) => api.put(`/messages/${id}/read`);
 export const getUnreadCount = () => api.get('/messages/unread-count');
+
+// Chatroom (Group)
+export const sendChatroomMessage = (content) => api.post('/chatroom', { content });
+export const getChatroomMessages = (limit = 100) => api.get('/chatroom', { params: { limit } });
+
+// Match History & Stats
+export const getMatchHistory = (playerId) => api.get('/match-history', { params: { player_id: playerId } });
+export const getPlayerStats = (playerId) => api.get(`/player-stats/${playerId}`);
+export const getAllPlayerStats = () => api.get('/player-stats');
 
 // Settings
 export const getSettings = () => api.get('/settings');
