@@ -20,7 +20,7 @@ const navLinks = [
     { path: '/schedule', label: 'Schedule', icon: Calendar },
     { path: '/season-standings', label: 'Standings', icon: Award },
     { path: '/solo-ladder', label: 'Ladder', icon: Trophy },
-    { path: '/education', label: 'Learn', icon: BookOpen },
+    { path: '/education', label: 'Improve', icon: BookOpen },
     { path: '/opponent-scout', label: 'Scout', icon: Target, authRequired: true },
     { path: '/strategy-bot', label: 'AI Coach', icon: Bot, authRequired: true },
     { path: '/chatroom', label: 'Chat', icon: MessageCircle, authRequired: true },
