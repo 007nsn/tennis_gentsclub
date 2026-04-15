@@ -244,6 +244,46 @@ class PlayerStatsResponse(BaseModel):
     win_rate: float
     recent_form: List[str]  # Last 5 results: W/L
 
+# Opponent Scout
+class OpponentScoutRequest(BaseModel):
+    opponent_name: str
+    playstyle: str  # e.g., "aggressive baseliner", "serve and volley"
+    strengths: str
+    weaknesses: str
+    additional_notes: Optional[str] = None
+
+class OpponentScoutResponse(BaseModel):
+    strategy: str
+    key_tactics: List[str]
+    warnings: List[str]
+
+# Strategy Bot
+class StrategyBotRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None  # For maintaining chat history
+
+class StrategyBotResponse(BaseModel):
+    response: str
+    session_id: str
+
+# Season Standings
+class SeasonStandingsResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    player_id: str
+    player_name: str
+    matches_played: int
+    wins: int
+    losses: int
+    win_rate: float
+    current_streak: int  # Positive for wins, negative for losses
+    best_streak: int
+    points: int  # Cumulative points (wins)
+
+# Match Reminder
+class MatchReminderCreate(BaseModel):
+    match_date: str
+    message: str
+
 # Round Robin Generation
 class RoundRobinRequest(BaseModel):
     date: str
@@ -1348,6 +1388,314 @@ Aim for angles to put the ball away. A cross-court volley is often more effectiv
     
     await db.articles.insert_many(sample_articles)
     return {"message": f"Added {len(sample_articles)} sample articles"}
+
+# ============ SEASON STANDINGS ============
+
+@api_router.get("/season-standings")
+async def get_season_standings():
+    """Get season standings with cumulative stats for all players"""
+    players = await db.solo_players.find({}, {"_id": 0}).to_list(100)
+    standings = []
+    
+    for player in players:
+        # Get all matches for this player
+        matches = await db.matches.find({
+            "status": "approved",
+            "match_type": "solo",
+            "$or": [{"player_a_id": player["id"]}, {"player_b_id": player["id"]}]
+        }, {"_id": 0}).sort("match_date", 1).to_list(500)
+        
+        total_matches = len(matches)
+        wins = 0
+        losses = 0
+        current_streak = 0
+        best_streak = 0
+        temp_streak = 0
+        last_result = None
+        
+        for match in matches:
+            is_player_a = match["player_a_id"] == player["id"]
+            player_score = match["score_a"] if is_player_a else match["score_b"]
+            opponent_score = match["score_b"] if is_player_a else match["score_a"]
+            
+            won = player_score > opponent_score
+            
+            if won:
+                wins += 1
+                if last_result == "W":
+                    temp_streak += 1
+                else:
+                    temp_streak = 1
+                last_result = "W"
+                current_streak = temp_streak
+            else:
+                losses += 1
+                if last_result == "L":
+                    temp_streak -= 1
+                else:
+                    temp_streak = -1
+                last_result = "L"
+                current_streak = temp_streak
+            
+            if temp_streak > best_streak:
+                best_streak = temp_streak
+        
+        win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
+        
+        standings.append({
+            "player_id": player["id"],
+            "player_name": player["name"],
+            "matches_played": total_matches,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": round(win_rate, 1),
+            "current_streak": current_streak,
+            "best_streak": best_streak,
+            "points": wins  # Each win = 1 point
+        })
+    
+    # Sort by points (wins), then by win rate
+    standings.sort(key=lambda x: (x["points"], x["win_rate"]), reverse=True)
+    return standings
+
+# ============ MATCH REMINDERS ============
+
+@api_router.post("/match-reminders")
+async def create_match_reminder(reminder: MatchReminderCreate, admin: dict = Depends(get_admin_user)):
+    """Admin posts a match reminder to the chatroom"""
+    msg_id = str(uuid.uuid4())
+    
+    chatroom_msg = {
+        "id": msg_id,
+        "sender_id": admin["id"],
+        "sender_name": admin["name"],
+        "sender_role": "admin",
+        "content": f"🎾 MATCH REMINDER - {reminder.match_date}\n\n{reminder.message}",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "is_reminder": True
+    }
+    await db.chatroom.insert_one(chatroom_msg)
+    
+    return {"message": "Reminder posted to chatroom", "id": msg_id}
+
+@api_router.get("/match-reminders")
+async def get_match_reminders():
+    """Get all match reminders from chatroom"""
+    reminders = await db.chatroom.find({"is_reminder": True}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return reminders
+
+# ============ OPPONENT SCOUT (Gemini 3 Pro) ============
+
+DOUBLES_STRATEGY_SYSTEM_PROMPT = """You are an elite doubles tennis tactical coach, drawing from "The Doubles Code" and advanced doubles strategy principles. Your role is to analyze opponents and provide actionable match strategies.
+
+CORE DOUBLES PRINCIPLES YOU FOLLOW:
+1. COURT GEOMETRY: Control the middle, use angles to open the court, recover to optimal positions
+2. POSITIONING FRAMEWORKS:
+   - Both Up (offensive): When your team has the advantage, both at net
+   - Both Back (defensive): When under pressure, reset the point
+   - One Up/One Back: Standard formation, net player looks to poach
+   - I-Formation: Confuse opponents on serve returns
+   - Australian Formation: Counter strong cross-court returners
+
+3. COMMUNICATION: Call every ball, signal plays, stay positive with partner
+
+4. TARGETING PATTERNS:
+   - Middle: Causes confusion, fewer angles for opponents
+   - At the feet: Force weak volleys or half-volleys
+   - Lob over aggressive net player
+   - Down the line when opponent expects cross-court
+
+5. KEY TACTICAL CONCEPTS:
+   - Poaching: Net player crosses to intercept
+   - Faking: Pretend to poach to disrupt rhythm
+   - Shot selection based on court position
+   - Exploiting weaker player
+   - Momentum management
+
+When analyzing opponents, provide specific, actionable tactics based on their playstyle, strengths, and weaknesses."""
+
+@api_router.post("/opponent-scout", response_model=OpponentScoutResponse)
+async def scout_opponent(request: OpponentScoutRequest, user: dict = Depends(get_current_user)):
+    """Get tactical advice for playing against a specific opponent"""
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"scout-{user['id']}-{uuid.uuid4()}",
+            system_message=DOUBLES_STRATEGY_SYSTEM_PROMPT
+        ).with_model("gemini", "gemini-2.5-pro")
+        
+        prompt = f"""OPPONENT ANALYSIS REQUEST
+
+**Opponent:** {request.opponent_name}
+**Playstyle:** {request.playstyle}
+**Strengths:** {request.strengths}
+**Weaknesses:** {request.weaknesses}
+{f"**Additional Notes:** {request.additional_notes}" if request.additional_notes else ""}
+
+Based on this opponent profile, provide:
+1. A MATCH STRATEGY paragraph (2-3 sentences on overall approach)
+2. KEY TACTICS (5-7 specific, actionable bullet points)
+3. WARNINGS (2-3 things to avoid or watch out for)
+
+Format your response as:
+STRATEGY: [paragraph]
+TACTICS:
+• [tactic 1]
+• [tactic 2]
+...
+WARNINGS:
+• [warning 1]
+• [warning 2]
+..."""
+
+        user_msg = UserMessage(text=prompt)
+        response = await chat.send_message(user_msg)
+        
+        # Parse response
+        strategy = ""
+        tactics = []
+        warnings = []
+        
+        current_section = None
+        for line in response.split('\n'):
+            line = line.strip()
+            if line.startswith('STRATEGY:'):
+                current_section = 'strategy'
+                strategy = line.replace('STRATEGY:', '').strip()
+            elif line.startswith('TACTICS:'):
+                current_section = 'tactics'
+            elif line.startswith('WARNINGS:'):
+                current_section = 'warnings'
+            elif line.startswith('•') or line.startswith('-'):
+                item = line.lstrip('•-').strip()
+                if current_section == 'tactics' and item:
+                    tactics.append(item)
+                elif current_section == 'warnings' and item:
+                    warnings.append(item)
+            elif current_section == 'strategy' and line:
+                strategy += ' ' + line
+        
+        # Store scout report
+        await db.scout_reports.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "opponent_name": request.opponent_name,
+            "request": request.model_dump(),
+            "response": {"strategy": strategy, "tactics": tactics, "warnings": warnings},
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+        return OpponentScoutResponse(
+            strategy=strategy or response,
+            key_tactics=tactics or ["See full strategy above"],
+            warnings=warnings or ["Stay focused and communicate with your partner"]
+        )
+        
+    except Exception as e:
+        logger.error(f"Opponent scout error: {e}")
+        raise HTTPException(status_code=500, detail="Strategy analysis unavailable")
+
+@api_router.get("/scout-reports")
+async def get_scout_reports(user: dict = Depends(get_current_user)):
+    """Get user's previous scout reports"""
+    reports = await db.scout_reports.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    return reports
+
+# ============ LIVE STRATEGY BOT (Gemini 3 Pro with History) ============
+
+STRATEGY_BOT_SYSTEM_PROMPT = """You are the Tennis Buddies Club's Live Strategy Coach, powered by advanced doubles tennis knowledge. You maintain conversation context and provide personalized tactical advice.
+
+YOUR EXPERTISE COVERS:
+1. **Court Geometry & Positioning**
+   - Optimal court coverage in doubles
+   - When to move forward vs stay back
+   - Recovery positions after shots
+   - Net positioning and spacing with partner
+
+2. **Shot Selection & Patterns**
+   - Cross-court vs down-the-line decisions
+   - When to lob, drive, or drop shot
+   - Targeting patterns based on opponent position
+   - Return of serve strategies
+
+3. **Formations & Plays**
+   - Standard formation (one up, one back)
+   - Both-up aggressive positioning
+   - I-Formation and Australian formation
+   - Poaching signals and timing
+
+4. **Match Tactics**
+   - How to handle different opponent types
+   - Momentum management
+   - Communication with partner
+   - Mental game and focus
+
+5. **Practice Drills**
+   - Doubles-specific drills
+   - Positioning exercises
+   - Point construction practice
+
+COMMUNICATION STYLE:
+- Be concise and actionable
+- Use tennis terminology appropriately
+- Give specific, practical advice
+- Reference court positions when relevant (deuce side, ad side, T, alley, etc.)
+- Encourage the player while being honest about areas to improve
+
+Remember previous messages in our conversation to provide contextual advice."""
+
+# Store strategy bot sessions in memory (for simplicity)
+strategy_sessions = {}
+
+@api_router.post("/strategy-bot", response_model=StrategyBotResponse)
+async def strategy_bot_chat(request: StrategyBotRequest, user: dict = Depends(get_current_user)):
+    """Live strategy bot with conversation history"""
+    try:
+        session_id = request.session_id or f"strategy-{user['id']}-{uuid.uuid4()}"
+        
+        # Get or create chat session
+        if session_id not in strategy_sessions:
+            strategy_sessions[session_id] = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=session_id,
+                system_message=STRATEGY_BOT_SYSTEM_PROMPT
+            ).with_model("gemini", "gemini-2.5-pro")
+        
+        chat = strategy_sessions[session_id]
+        
+        user_msg = UserMessage(text=request.message)
+        response = await chat.send_message(user_msg)
+        
+        # Store in database for persistence
+        await db.strategy_chats.insert_one({
+            "id": str(uuid.uuid4()),
+            "session_id": session_id,
+            "user_id": user["id"],
+            "user_message": request.message,
+            "bot_response": response,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        
+        return StrategyBotResponse(response=response, session_id=session_id)
+        
+    except Exception as e:
+        logger.error(f"Strategy bot error: {e}")
+        raise HTTPException(status_code=500, detail="Strategy bot unavailable")
+
+@api_router.get("/strategy-bot/history/{session_id}")
+async def get_strategy_history(session_id: str, user: dict = Depends(get_current_user)):
+    """Get conversation history for a strategy session"""
+    history = await db.strategy_chats.find(
+        {"session_id": session_id, "user_id": user["id"]},
+        {"_id": 0}
+    ).sort("timestamp", 1).to_list(100)
+    return history
+
+@api_router.post("/strategy-bot/new-session")
+async def new_strategy_session(user: dict = Depends(get_current_user)):
+    """Start a new strategy bot session"""
+    session_id = f"strategy-{user['id']}-{uuid.uuid4()}"
+    return {"session_id": session_id}
 
 # Include the router
 app.include_router(api_router)

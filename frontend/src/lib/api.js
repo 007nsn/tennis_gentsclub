@@ -97,6 +97,22 @@ export const getMatchHistory = (playerId) => api.get('/match-history', { params:
 export const getPlayerStats = (playerId) => api.get(`/player-stats/${playerId}`);
 export const getAllPlayerStats = () => api.get('/player-stats');
 
+// Season Standings
+export const getSeasonStandings = () => api.get('/season-standings');
+
+// Match Reminders
+export const createMatchReminder = (data) => api.post('/match-reminders', data);
+export const getMatchReminders = () => api.get('/match-reminders');
+
+// Opponent Scout (Gemini AI)
+export const scoutOpponent = (data) => api.post('/opponent-scout', data);
+export const getScoutReports = () => api.get('/scout-reports');
+
+// Strategy Bot (Gemini AI)
+export const sendStrategyMessage = (message, sessionId) => api.post('/strategy-bot', { message, session_id: sessionId });
+export const getStrategyHistory = (sessionId) => api.get(`/strategy-bot/history/${sessionId}`);
+export const newStrategySession = () => api.post('/strategy-bot/new-session');
+
 // Settings
 export const getSettings = () => api.get('/settings');
 export const updateSettings = (data) => api.put('/settings', data);

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
 import { 
     Home, Calendar, Trophy, Users, BookOpen, MessageCircle, 
-    Menu, X, LogOut, User, Settings, ChevronDown 
+    Menu, X, LogOut, User, Settings, ChevronDown, Target, Bot, Award
 } from 'lucide-react';
 import {
     DropdownMenu,
@@ -18,12 +18,12 @@ import ChatWidget from './ChatWidget';
 const navLinks = [
     { path: '/', label: 'Home', icon: Home },
     { path: '/schedule', label: 'Schedule', icon: Calendar },
-    { path: '/team-ladder', label: 'Team Ladder', icon: Trophy },
-    { path: '/solo-ladder', label: 'Solo Ladder', icon: Users },
-    { path: '/match-history', label: 'History', icon: Trophy },
+    { path: '/season-standings', label: 'Standings', icon: Award },
+    { path: '/solo-ladder', label: 'Ladder', icon: Trophy },
     { path: '/education', label: 'Learn', icon: BookOpen },
+    { path: '/opponent-scout', label: 'Scout', icon: Target, authRequired: true },
+    { path: '/strategy-bot', label: 'AI Coach', icon: Bot, authRequired: true },
     { path: '/chatroom', label: 'Chat', icon: MessageCircle, authRequired: true },
-    { path: '/availability', label: 'Availability', icon: Calendar, authRequired: true },
 ];
 
 export const Layout = ({ children }) => {

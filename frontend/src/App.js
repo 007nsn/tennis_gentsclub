@@ -11,6 +11,8 @@ import Register from "./pages/Register";
 import Schedule from "./pages/Schedule";
 import TeamLadder from "./pages/TeamLadder";
 import SoloLadder from "./pages/SoloLadder";
+import SeasonStandings from "./pages/SeasonStandings";
+import MatchHistory from "./pages/MatchHistory";
 import Education from "./pages/Education";
 import ArticleDetail from "./pages/ArticleDetail";
 import SubmitResult from "./pages/SubmitResult";
@@ -18,7 +20,8 @@ import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
 import Availability from "./pages/Availability";
 import Chatroom from "./pages/Chatroom";
-import MatchHistory from "./pages/MatchHistory";
+import OpponentScout from "./pages/OpponentScout";
+import StrategyBot from "./pages/StrategyBot";
 
 function App() {
   return (
@@ -32,6 +35,7 @@ function App() {
             <Route path="/schedule" element={<Schedule />} />
             <Route path="/team-ladder" element={<TeamLadder />} />
             <Route path="/solo-ladder" element={<SoloLadder />} />
+            <Route path="/season-standings" element={<SeasonStandings />} />
             <Route path="/match-history" element={<MatchHistory />} />
             <Route path="/education" element={<Education />} />
             <Route path="/education/:id" element={<ArticleDetail />} />
@@ -40,6 +44,8 @@ function App() {
             <Route path="/admin" element={<Admin />} />
             <Route path="/availability" element={<Availability />} />
             <Route path="/chatroom" element={<Chatroom />} />
+            <Route path="/opponent-scout" element={<OpponentScout />} />
+            <Route path="/strategy-bot" element={<StrategyBot />} />
           </Routes>
         </Layout>
         <Toaster position="top-right" richColors />

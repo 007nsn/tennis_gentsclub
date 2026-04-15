@@ -17,13 +17,14 @@ import {
     getAnnouncements, createAnnouncement, deleteAnnouncement,
     getUsers, updateUser,
     getSoloLadder, updateSoloPlayer,
-    getAvailability, getUpcomingSundays, sendAvailabilityReminder,
-    getSettings, updateSettings, seedSampleContent
+    getAvailability, getUpcomingSundays,
+    getSettings, updateSettings, seedSampleContent,
+    createMatchReminder
 } from '../lib/api';
 import { toast } from 'sonner';
 import { 
     Shield, Trophy, Calendar, BookOpen, Megaphone, Users, 
-    Check, X, Trash2, Plus, Loader2, Edit2, Settings, Mail,
+    Check, X, Trash2, Plus, Loader2, Edit2, Settings, Bell,
     Video, FileText, Image
 } from 'lucide-react';
 
@@ -50,6 +51,7 @@ export default function Admin() {
     const [scheduleForm, setScheduleForm] = useState({ title: '', description: '', match_date: '', match_time: '09:00', location: '', teams: [] });
     const [articleForm, setArticleForm] = useState({ title: '', content: '', category: 'technique', content_type: 'article', video_url: '', image_url: '' });
     const [announcementForm, setAnnouncementForm] = useState({ title: '', content: '', priority: 'normal' });
+    const [reminderForm, setReminderForm] = useState({ match_date: '', message: '' });
     const [editingPlayer, setEditingPlayer] = useState(null);
     const [editingUser, setEditingUser] = useState(null);
     const [selectedSunday, setSelectedSunday] = useState('');
@@ -164,8 +166,8 @@ export default function Admin() {
             return;
         }
         const availCount = (availability[selectedSunday] || []).length;
-        if (availCount < 4) {
-            toast.error(`Need at least 4 available players (currently ${availCount})`);
+        if (availCount < 2) {
+            toast.error(`Need at least 2 available players (currently ${availCount})`);
             return;
         }
         setLoading(true);
@@ -176,10 +178,29 @@ export default function Admin() {
                 match_duration_minutes: settings.match_duration_minutes,
                 start_time: settings.default_start_time
             });
-            toast.success(`Round robin generated with ${res.data.player_count} players!`);
+            toast.success(`Round robin generated with ${res.data.player_count} players! Posted to chatroom.`);
             loadAllData();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to generate round robin');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Match Reminder handler
+    const handleSendReminder = async (e) => {
+        e.preventDefault();
+        if (!reminderForm.match_date || !reminderForm.message) {
+            toast.error('Please fill in date and message');
+            return;
+        }
+        setLoading(true);
+        try {
+            await createMatchReminder(reminderForm);
+            toast.success('Reminder posted to chatroom!');
+            setReminderForm({ match_date: '', message: '' });
+        } catch (error) {
+            toast.error('Failed to post reminder');
         } finally {
             setLoading(false);
         }
