@@ -21,6 +21,7 @@ const navLinks = [
     { path: '/team-ladder', label: 'Team Ladder', icon: Trophy },
     { path: '/solo-ladder', label: 'Solo Ladder', icon: Users },
     { path: '/education', label: 'Learn', icon: BookOpen },
+    { path: '/availability', label: 'Availability', icon: Calendar, authRequired: true },
 ];
 
 export const Layout = ({ children }) => {
@@ -53,7 +54,7 @@ export const Layout = ({ children }) => {
 
                         {/* Desktop Navigation */}
                         <div className="hidden md:flex items-center gap-1">
-                            {navLinks.map(({ path, label, icon: Icon }) => (
+                            {navLinks.filter(link => !link.authRequired || user).map(({ path, label, icon: Icon }) => (
                                 <Link
                                     key={path}
                                     to={path}
@@ -111,6 +112,12 @@ export const Layout = ({ children }) => {
                                                     Submit Result
                                                 </Link>
                                             </DropdownMenuItem>
+                                            <DropdownMenuItem asChild>
+                                                <Link to="/messages" className="flex items-center gap-2" data-testid="messages-link">
+                                                    <MessageCircle className="w-4 h-4" />
+                                                    Messages
+                                                </Link>
+                                            </DropdownMenuItem>
                                             {isAdmin && (
                                                 <DropdownMenuItem asChild>
                                                     <Link to="/admin" className="flex items-center gap-2" data-testid="admin-link">
@@ -160,7 +167,7 @@ export const Layout = ({ children }) => {
                 {mobileMenuOpen && (
                     <div className="md:hidden border-t border-gray-100 bg-white animate-fade-in">
                         <div className="px-4 py-3 space-y-1">
-                            {navLinks.map(({ path, label, icon: Icon }) => (
+                            {navLinks.filter(link => !link.authRequired || user).map(({ path, label, icon: Icon }) => (
                                 <Link
                                     key={path}
                                     to={path}

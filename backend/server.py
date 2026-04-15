@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional
@@ -13,6 +14,8 @@ from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+import resend
+from itertools import combinations
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -24,6 +27,12 @@ db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'tennis-buddies-secret')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+
+# Initialize Resend
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 
 # Create the main app
 app = FastAPI()
@@ -53,6 +62,10 @@ class UserResponse(BaseModel):
     role: str
     created_at: str
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
 class TeamCreate(BaseModel):
     name: str
     member_ids: List[str]
@@ -72,10 +85,14 @@ class SoloPlayerResponse(BaseModel):
     id: str
     user_id: str
     name: str
-    wins: int = 0  # Each win = 1 point, wins determine ladder position
+    wins: int = 0
+
+class SoloPlayerUpdate(BaseModel):
+    wins: Optional[int] = None
+    name: Optional[str] = None
 
 class MatchCreate(BaseModel):
-    match_type: str  # "team" or "solo"
+    match_type: str
     team_a_id: Optional[str] = None
     team_b_id: Optional[str] = None
     player_a_id: Optional[str] = None
@@ -99,7 +116,7 @@ class MatchResponse(BaseModel):
     score_a: int
     score_b: int
     match_date: str
-    status: str  # pending, approved, rejected
+    status: str
     submitted_by: str
     submitted_at: str
 
@@ -109,7 +126,8 @@ class ScheduleCreate(BaseModel):
     match_date: str
     match_time: str
     location: str
-    teams: List[str]  # team IDs or names for round robin
+    teams: List[str] = []
+    court_assignments: Optional[List[dict]] = None
 
 class ScheduleResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -120,12 +138,14 @@ class ScheduleResponse(BaseModel):
     match_time: str
     location: str
     teams: List[str]
+    court_assignments: Optional[List[dict]] = None
     created_at: str
 
 class ArticleCreate(BaseModel):
     title: str
     content: str
-    category: str  # technique, strategy, fitness, equipment
+    category: str
+    content_type: str = "article"  # article, video, infographic
     video_url: Optional[str] = None
     image_url: Optional[str] = None
 
@@ -135,11 +155,20 @@ class ArticleResponse(BaseModel):
     title: str
     content: str
     category: str
+    content_type: str = "article"
     video_url: Optional[str] = None
     image_url: Optional[str] = None
     author_id: str
     author_name: str
     created_at: str
+
+class ArticleUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    content_type: Optional[str] = None
+    video_url: Optional[str] = None
+    image_url: Optional[str] = None
 
 class ChatMessageCreate(BaseModel):
     message: str
@@ -151,7 +180,7 @@ class ChatMessageResponse(BaseModel):
 class AnnouncementCreate(BaseModel):
     title: str
     content: str
-    priority: str = "normal"  # normal, high, urgent
+    priority: str = "normal"
 
 class AnnouncementResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -162,6 +191,48 @@ class AnnouncementResponse(BaseModel):
     author_id: str
     author_name: str
     created_at: str
+
+# Availability models
+class AvailabilityCreate(BaseModel):
+    date: str
+    available: bool
+
+class AvailabilityResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    user_id: str
+    user_name: str
+    date: str
+    available: bool
+    confirmed_at: str
+
+# Message models (Player to Admin)
+class MessageCreate(BaseModel):
+    content: str
+    recipient_id: Optional[str] = None  # If None, goes to admin
+
+class MessageResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    sender_id: str
+    sender_name: str
+    recipient_id: Optional[str] = None
+    content: str
+    read: bool = False
+    created_at: str
+
+# Round Robin Generation
+class RoundRobinRequest(BaseModel):
+    date: str
+    num_courts: int = 2
+    match_duration_minutes: int = 30
+    start_time: str = "09:00"
+
+class ClubSettings(BaseModel):
+    num_courts: int = 2
+    default_location: str = "Local Tennis Club"
+    match_duration_minutes: int = 30
+    default_start_time: str = "09:00"
 
 # ============ AUTH HELPERS ============
 
@@ -196,6 +267,139 @@ async def get_admin_user(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
+# ============ EMAIL HELPERS ============
+
+async def send_email(to_email: str, subject: str, html_content: str):
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not configured, skipping email")
+        return None
+    try:
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [to_email],
+            "subject": subject,
+            "html": html_content
+        }
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Email sent to {to_email}")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+        return None
+
+def get_email_template(title: str, content: str, button_text: str = None, button_url: str = None):
+    button_html = ""
+    if button_text and button_url:
+        button_html = f'''
+        <tr>
+            <td style="padding: 20px 0;">
+                <a href="{button_url}" style="background-color: #CCFF00; color: #002040; padding: 12px 24px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block;">{button_text}</a>
+            </td>
+        </tr>
+        '''
+    return f'''
+    <html>
+    <body style="font-family: Arial, sans-serif; background-color: #F8F9FA; margin: 0; padding: 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: white; border-radius: 12px; overflow: hidden;">
+            <tr>
+                <td style="background-color: #0051BA; padding: 20px; text-align: center;">
+                    <h1 style="color: white; margin: 0; font-size: 24px;">Tennis Buddies Club</h1>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 30px;">
+                    <h2 style="color: #0F172A; margin-top: 0;">{title}</h2>
+                    <p style="color: #64748B; line-height: 1.6;">{content}</p>
+                </td>
+            </tr>
+            {button_html}
+            <tr>
+                <td style="padding: 20px; background-color: #F8F9FA; text-align: center; color: #94A3B8; font-size: 12px;">
+                    Tennis Buddies Club - Sunday Doubles
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    '''
+
+# ============ ROUND ROBIN ALGORITHM ============
+
+def generate_round_robin_doubles(players: List[dict], num_courts: int):
+    """
+    Generate round robin doubles matches where partners rotate.
+    Each player plays with every other player as a partner at least once.
+    Returns list of matches with court assignments.
+    """
+    if len(players) < 4:
+        return []
+    
+    matches = []
+    player_ids = [p["id"] for p in players]
+    player_names = {p["id"]: p["name"] for p in players}
+    
+    # Generate all possible pairs (teams of 2)
+    all_pairs = list(combinations(player_ids, 2))
+    
+    # Generate matches: each pair of pairs that don't share players
+    match_id = 0
+    used_pairs = set()
+    
+    for i, pair1 in enumerate(all_pairs):
+        for pair2 in all_pairs[i+1:]:
+            # Check if pairs share any player
+            if set(pair1).isdisjoint(set(pair2)):
+                pair_key = (frozenset(pair1), frozenset(pair2))
+                reverse_key = (frozenset(pair2), frozenset(pair1))
+                if pair_key not in used_pairs and reverse_key not in used_pairs:
+                    used_pairs.add(pair_key)
+                    team1_names = f"{player_names[pair1[0]]} & {player_names[pair1[1]]}"
+                    team2_names = f"{player_names[pair2[0]]} & {player_names[pair2[1]]}"
+                    matches.append({
+                        "match_id": match_id,
+                        "team1": list(pair1),
+                        "team2": list(pair2),
+                        "team1_names": team1_names,
+                        "team2_names": team2_names,
+                        "court": (match_id % num_courts) + 1
+                    })
+                    match_id += 1
+    
+    return matches
+
+def assign_time_slots(matches: List[dict], start_time: str, duration_minutes: int, num_courts: int):
+    """Assign time slots to matches based on court availability."""
+    start_hour, start_min = map(int, start_time.split(":"))
+    start_datetime = datetime.now().replace(hour=start_hour, minute=start_min, second=0, microsecond=0)
+    
+    # Group matches by rounds (parallel matches on different courts)
+    rounds = []
+    current_round = []
+    courts_used = set()
+    
+    for match in matches:
+        if match["court"] in courts_used or len(current_round) >= num_courts:
+            rounds.append(current_round)
+            current_round = [match]
+            courts_used = {match["court"]}
+        else:
+            current_round.append(match)
+            courts_used.add(match["court"])
+    
+    if current_round:
+        rounds.append(current_round)
+    
+    # Assign times
+    result = []
+    for round_idx, round_matches in enumerate(rounds):
+        round_time = start_datetime + timedelta(minutes=duration_minutes * round_idx)
+        time_str = round_time.strftime("%H:%M")
+        for match in round_matches:
+            match["time"] = time_str
+            result.append(match)
+    
+    return result
+
 # ============ AUTH ROUTES ============
 
 @api_router.post("/auth/register", response_model=dict)
@@ -205,7 +409,6 @@ async def register(user_data: UserCreate):
         raise HTTPException(status_code=400, detail="Email already registered")
     
     user_id = str(uuid.uuid4())
-    # First user becomes admin
     count = await db.users.count_documents({})
     role = "admin" if count == 0 else "member"
     
@@ -219,12 +422,11 @@ async def register(user_data: UserCreate):
     }
     await db.users.insert_one(user)
     
-    # Create solo player entry
     solo_player = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
         "name": user_data.name,
-        "wins": 0  # Each win = 1 point for ladder ranking
+        "wins": 0
     }
     await db.solo_players.insert_one(solo_player)
     
@@ -255,13 +457,27 @@ async def get_users(user: dict = Depends(get_current_user)):
     users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
     return [UserResponse(**u) for u in users]
 
+@api_router.put("/users/{user_id}")
+async def update_user(user_id: str, update_data: UserUpdate, admin: dict = Depends(get_admin_user)):
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    result = await db.users.update_one({"id": user_id}, {"$set": update_dict})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Also update solo player name if name changed
+    if "name" in update_dict:
+        await db.solo_players.update_one({"user_id": user_id}, {"$set": {"name": update_dict["name"]}})
+    
+    return {"message": "User updated"}
+
 # ============ TEAM ROUTES ============
 
 @api_router.post("/teams", response_model=TeamResponse)
 async def create_team(team_data: TeamCreate, user: dict = Depends(get_admin_user)):
     team_id = str(uuid.uuid4())
-    
-    # Get member names
     members = await db.users.find({"id": {"$in": team_data.member_ids}}, {"_id": 0}).to_list(100)
     member_names = [m["name"] for m in members]
     
@@ -282,6 +498,13 @@ async def get_teams():
     teams = await db.teams.find({}, {"_id": 0}).sort("points", -1).to_list(1000)
     return [TeamResponse(**t) for t in teams]
 
+@api_router.put("/teams/{team_id}")
+async def update_team(team_id: str, update_data: dict, admin: dict = Depends(get_admin_user)):
+    result = await db.teams.update_one({"id": team_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return {"message": "Team updated"}
+
 @api_router.delete("/teams/{team_id}")
 async def delete_team(team_id: str, user: dict = Depends(get_admin_user)):
     result = await db.teams.delete_one({"id": team_id})
@@ -293,9 +516,130 @@ async def delete_team(team_id: str, user: dict = Depends(get_admin_user)):
 
 @api_router.get("/solo-ladder", response_model=List[SoloPlayerResponse])
 async def get_solo_ladder():
-    # Sort by wins descending - each win = 1 point
     players = await db.solo_players.find({}, {"_id": 0}).sort("wins", -1).to_list(1000)
     return [SoloPlayerResponse(**p) for p in players]
+
+@api_router.put("/solo-ladder/{player_id}")
+async def update_solo_player(player_id: str, update_data: SoloPlayerUpdate, admin: dict = Depends(get_admin_user)):
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    result = await db.solo_players.update_one({"id": player_id}, {"$set": update_dict})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return {"message": "Player updated"}
+
+# ============ AVAILABILITY ROUTES ============
+
+@api_router.post("/availability", response_model=AvailabilityResponse)
+async def set_availability(avail_data: AvailabilityCreate, user: dict = Depends(get_current_user)):
+    # Upsert availability for this user and date
+    avail_id = str(uuid.uuid4())
+    existing = await db.availability.find_one({"user_id": user["id"], "date": avail_data.date})
+    
+    if existing:
+        await db.availability.update_one(
+            {"user_id": user["id"], "date": avail_data.date},
+            {"$set": {"available": avail_data.available, "confirmed_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        avail_id = existing["id"]
+    else:
+        avail = {
+            "id": avail_id,
+            "user_id": user["id"],
+            "user_name": user["name"],
+            "date": avail_data.date,
+            "available": avail_data.available,
+            "confirmed_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.availability.insert_one(avail)
+    
+    return AvailabilityResponse(
+        id=avail_id,
+        user_id=user["id"],
+        user_name=user["name"],
+        date=avail_data.date,
+        available=avail_data.available,
+        confirmed_at=datetime.now(timezone.utc).isoformat()
+    )
+
+@api_router.get("/availability", response_model=List[AvailabilityResponse])
+async def get_availability(date: Optional[str] = None):
+    query = {}
+    if date:
+        query["date"] = date
+    avails = await db.availability.find(query, {"_id": 0}).to_list(1000)
+    return [AvailabilityResponse(**a) for a in avails]
+
+@api_router.get("/availability/upcoming-sundays")
+async def get_upcoming_sundays():
+    """Get next 4 Sundays for availability selection"""
+    today = datetime.now()
+    days_until_sunday = (6 - today.weekday()) % 7
+    if days_until_sunday == 0:
+        days_until_sunday = 7
+    
+    sundays = []
+    for i in range(4):
+        sunday = today + timedelta(days=days_until_sunday + (i * 7))
+        sundays.append(sunday.strftime("%Y-%m-%d"))
+    
+    return {"sundays": sundays}
+
+# ============ ROUND ROBIN GENERATION ============
+
+@api_router.post("/schedules/generate-round-robin")
+async def generate_round_robin_schedule(request: RoundRobinRequest, admin: dict = Depends(get_admin_user)):
+    # Get available players for the date
+    available = await db.availability.find({"date": request.date, "available": True}, {"_id": 0}).to_list(100)
+    
+    if len(available) < 4:
+        raise HTTPException(status_code=400, detail="Need at least 4 available players for doubles round robin")
+    
+    # Get player details
+    player_ids = [a["user_id"] for a in available]
+    players = await db.solo_players.find({"user_id": {"$in": player_ids}}, {"_id": 0}).to_list(100)
+    
+    # Generate matches
+    matches = generate_round_robin_doubles(players, request.num_courts)
+    matches = assign_time_slots(matches, request.start_time, request.match_duration_minutes, request.num_courts)
+    
+    # Get settings
+    settings = await db.settings.find_one({"type": "club"}, {"_id": 0})
+    location = settings.get("default_location", "Local Tennis Club") if settings else "Local Tennis Club"
+    
+    # Create schedule
+    schedule_id = str(uuid.uuid4())
+    schedule = {
+        "id": schedule_id,
+        "title": f"Sunday Round Robin - {request.date}",
+        "description": f"Auto-generated round robin with {len(players)} players on {request.num_courts} courts",
+        "match_date": request.date,
+        "match_time": request.start_time,
+        "location": location,
+        "teams": [a["user_name"] for a in available],
+        "court_assignments": matches,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.schedules.insert_one(schedule)
+    
+    # Send email notifications to available players
+    for avail in available:
+        user = await db.users.find_one({"id": avail["user_id"]}, {"_id": 0})
+        if user and user.get("email"):
+            await send_email(
+                user["email"],
+                f"Sunday Match Schedule - {request.date}",
+                get_email_template(
+                    "Your Match Schedule is Ready!",
+                    f"The round robin schedule for {request.date} has been generated. Check the app for your match times and court assignments.",
+                    "View Schedule",
+                    "https://match-mixer.preview.emergentagent.com/schedule"
+                )
+            )
+    
+    return {"schedule_id": schedule_id, "matches": matches, "player_count": len(players)}
 
 # ============ MATCH ROUTES ============
 
@@ -319,7 +663,6 @@ async def submit_match(match_data: MatchCreate, user: dict = Depends(get_current
         "submitted_at": datetime.now(timezone.utc).isoformat()
     }
     
-    # Fetch names for teams/players
     if match_data.match_type == "team":
         team_a = await db.teams.find_one({"id": match_data.team_a_id}, {"_id": 0})
         team_b = await db.teams.find_one({"id": match_data.team_b_id}, {"_id": 0})
@@ -332,6 +675,21 @@ async def submit_match(match_data: MatchCreate, user: dict = Depends(get_current
         match["player_b_name"] = player_b["name"] if player_b else "Unknown"
     
     await db.matches.insert_one(match)
+    
+    # Notify admin
+    admins = await db.users.find({"role": "admin"}, {"_id": 0}).to_list(10)
+    for admin in admins:
+        await send_email(
+            admin["email"],
+            "New Match Result Submitted",
+            get_email_template(
+                "Match Result Pending Approval",
+                f"{user['name']} submitted a match result. Please review and approve/reject.",
+                "Review Match",
+                "https://match-mixer.preview.emergentagent.com/admin"
+            )
+        )
+    
     return MatchResponse(**match)
 
 @api_router.get("/matches", response_model=List[MatchResponse])
@@ -351,10 +709,8 @@ async def approve_match(match_id: str, user: dict = Depends(get_admin_user)):
     if match["status"] != "pending":
         raise HTTPException(status_code=400, detail="Match already processed")
     
-    # Update match status
     await db.matches.update_one({"id": match_id}, {"$set": {"status": "approved"}})
     
-    # Update ladder - team uses points system, solo uses wins only
     if match["match_type"] == "team":
         winner_points = 25
         loser_points = -15
@@ -365,19 +721,49 @@ async def approve_match(match_id: str, user: dict = Depends(get_admin_user)):
             await db.teams.update_one({"id": match["team_b_id"]}, {"$inc": {"wins": 1, "points": winner_points}})
             await db.teams.update_one({"id": match["team_a_id"]}, {"$inc": {"losses": 1, "points": loser_points}})
     else:
-        # Solo ladder: only winner gets +1 win (each win = 1 point for ranking)
         if match["score_a"] > match["score_b"]:
             await db.solo_players.update_one({"id": match["player_a_id"]}, {"$inc": {"wins": 1}})
         else:
             await db.solo_players.update_one({"id": match["player_b_id"]}, {"$inc": {"wins": 1}})
     
+    # Notify submitter
+    submitter = await db.users.find_one({"id": match["submitted_by"]}, {"_id": 0})
+    if submitter:
+        await send_email(
+            submitter["email"],
+            "Match Result Approved",
+            get_email_template(
+                "Your Match Result was Approved!",
+                "Your submitted match result has been approved and the ladder has been updated.",
+                "View Ladder",
+                "https://match-mixer.preview.emergentagent.com/solo-ladder"
+            )
+        )
+    
     return {"message": "Match approved and ladder updated"}
 
 @api_router.put("/matches/{match_id}/reject")
 async def reject_match(match_id: str, user: dict = Depends(get_admin_user)):
-    result = await db.matches.update_one({"id": match_id}, {"$set": {"status": "rejected"}})
-    if result.matched_count == 0:
+    match = await db.matches.find_one({"id": match_id}, {"_id": 0})
+    if not match:
         raise HTTPException(status_code=404, detail="Match not found")
+    
+    await db.matches.update_one({"id": match_id}, {"$set": {"status": "rejected"}})
+    
+    # Notify submitter
+    submitter = await db.users.find_one({"id": match["submitted_by"]}, {"_id": 0})
+    if submitter:
+        await send_email(
+            submitter["email"],
+            "Match Result Rejected",
+            get_email_template(
+                "Match Result Rejected",
+                "Your submitted match result was rejected. Please contact the admin if you have questions.",
+                "Contact Admin",
+                "https://match-mixer.preview.emergentagent.com/messages"
+            )
+        )
+    
     return {"message": "Match rejected"}
 
 # ============ SCHEDULE ROUTES ============
@@ -393,6 +779,7 @@ async def create_schedule(schedule_data: ScheduleCreate, user: dict = Depends(ge
         "match_time": schedule_data.match_time,
         "location": schedule_data.location,
         "teams": schedule_data.teams,
+        "court_assignments": schedule_data.court_assignments,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.schedules.insert_one(schedule)
@@ -420,6 +807,7 @@ async def create_article(article_data: ArticleCreate, user: dict = Depends(get_a
         "title": article_data.title,
         "content": article_data.content,
         "category": article_data.category,
+        "content_type": article_data.content_type,
         "video_url": article_data.video_url,
         "image_url": article_data.image_url,
         "author_id": user["id"],
@@ -430,10 +818,12 @@ async def create_article(article_data: ArticleCreate, user: dict = Depends(get_a
     return ArticleResponse(**article)
 
 @api_router.get("/articles", response_model=List[ArticleResponse])
-async def get_articles(category: Optional[str] = None):
+async def get_articles(category: Optional[str] = None, content_type: Optional[str] = None):
     query = {}
     if category:
         query["category"] = category
+    if content_type:
+        query["content_type"] = content_type
     articles = await db.articles.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return [ArticleResponse(**a) for a in articles]
 
@@ -444,12 +834,82 @@ async def get_article(article_id: str):
         raise HTTPException(status_code=404, detail="Article not found")
     return ArticleResponse(**article)
 
+@api_router.put("/articles/{article_id}")
+async def update_article(article_id: str, update_data: ArticleUpdate, admin: dict = Depends(get_admin_user)):
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    result = await db.articles.update_one({"id": article_id}, {"$set": update_dict})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return {"message": "Article updated"}
+
 @api_router.delete("/articles/{article_id}")
 async def delete_article(article_id: str, user: dict = Depends(get_admin_user)):
     result = await db.articles.delete_one({"id": article_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Article not found")
     return {"message": "Article deleted"}
+
+# ============ MESSAGES (Player to Admin) ============
+
+@api_router.post("/messages", response_model=MessageResponse)
+async def send_message(msg_data: MessageCreate, user: dict = Depends(get_current_user)):
+    msg_id = str(uuid.uuid4())
+    
+    # If no recipient specified, send to first admin
+    recipient_id = msg_data.recipient_id
+    if not recipient_id:
+        admin = await db.users.find_one({"role": "admin"}, {"_id": 0})
+        recipient_id = admin["id"] if admin else None
+    
+    message = {
+        "id": msg_id,
+        "sender_id": user["id"],
+        "sender_name": user["name"],
+        "recipient_id": recipient_id,
+        "content": msg_data.content,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.messages.insert_one(message)
+    
+    # Notify recipient
+    if recipient_id:
+        recipient = await db.users.find_one({"id": recipient_id}, {"_id": 0})
+        if recipient:
+            await send_email(
+                recipient["email"],
+                f"New Message from {user['name']}",
+                get_email_template(
+                    "You have a new message",
+                    f"{user['name']} sent you a message: \"{msg_data.content[:100]}...\"",
+                    "View Messages",
+                    "https://match-mixer.preview.emergentagent.com/messages"
+                )
+            )
+    
+    return MessageResponse(**message)
+
+@api_router.get("/messages", response_model=List[MessageResponse])
+async def get_messages(user: dict = Depends(get_current_user)):
+    # Get messages where user is sender or recipient
+    messages = await db.messages.find(
+        {"$or": [{"sender_id": user["id"]}, {"recipient_id": user["id"]}]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return [MessageResponse(**m) for m in messages]
+
+@api_router.put("/messages/{msg_id}/read")
+async def mark_message_read(msg_id: str, user: dict = Depends(get_current_user)):
+    await db.messages.update_one({"id": msg_id, "recipient_id": user["id"]}, {"$set": {"read": True}})
+    return {"message": "Message marked as read"}
+
+@api_router.get("/messages/unread-count")
+async def get_unread_count(user: dict = Depends(get_current_user)):
+    count = await db.messages.count_documents({"recipient_id": user["id"], "read": False})
+    return {"count": count}
 
 # ============ ANNOUNCEMENTS ROUTES ============
 
@@ -480,6 +940,51 @@ async def delete_announcement(ann_id: str, user: dict = Depends(get_admin_user))
         raise HTTPException(status_code=404, detail="Announcement not found")
     return {"message": "Announcement deleted"}
 
+# ============ CLUB SETTINGS ============
+
+@api_router.get("/settings")
+async def get_settings(user: dict = Depends(get_admin_user)):
+    settings = await db.settings.find_one({"type": "club"}, {"_id": 0})
+    if not settings:
+        settings = {
+            "type": "club",
+            "num_courts": 2,
+            "default_location": "Local Tennis Club",
+            "match_duration_minutes": 30,
+            "default_start_time": "09:00"
+        }
+    return settings
+
+@api_router.put("/settings")
+async def update_settings(settings: ClubSettings, user: dict = Depends(get_admin_user)):
+    settings_dict = settings.model_dump()
+    settings_dict["type"] = "club"
+    await db.settings.update_one({"type": "club"}, {"$set": settings_dict}, upsert=True)
+    return {"message": "Settings updated"}
+
+# ============ SEND AVAILABILITY REMINDER ============
+
+@api_router.post("/admin/send-availability-reminder")
+async def send_availability_reminder(date: str, admin: dict = Depends(get_admin_user)):
+    users = await db.users.find({}, {"_id": 0}).to_list(1000)
+    sent_count = 0
+    
+    for user in users:
+        if user.get("email"):
+            await send_email(
+                user["email"],
+                f"Confirm Your Availability for {date}",
+                get_email_template(
+                    "Sunday Tennis - Are You In?",
+                    f"Please confirm your availability for the Sunday doubles session on {date}. We need to know who's playing to set up the round robin matches.",
+                    "Confirm Availability",
+                    "https://match-mixer.preview.emergentagent.com/availability"
+                )
+            )
+            sent_count += 1
+    
+    return {"message": f"Reminder sent to {sent_count} members"}
+
 # ============ CHATBOT ROUTES ============
 
 @api_router.post("/chat", response_model=ChatMessageResponse)
@@ -501,7 +1006,6 @@ Be encouraging, concise, and helpful. If asked about specific club data like sch
         user_msg = UserMessage(text=message.message)
         response = await chat.send_message(user_msg)
         
-        # Store chat history
         await db.chat_history.insert_one({
             "user_id": user["id"],
             "user_message": message.message,
@@ -527,13 +1031,169 @@ async def get_stats():
     total_teams = await db.teams.count_documents({})
     total_matches = await db.matches.count_documents({"status": "approved"})
     pending_matches = await db.matches.count_documents({"status": "pending"})
+    unread_messages = await db.messages.count_documents({"read": False})
     
     return {
         "total_members": total_members,
         "total_teams": total_teams,
         "total_matches": total_matches,
-        "pending_matches": pending_matches
+        "pending_matches": pending_matches,
+        "unread_messages": unread_messages
     }
+
+# ============ SEED SAMPLE CONTENT ============
+
+@api_router.post("/admin/seed-content")
+async def seed_sample_content(admin: dict = Depends(get_admin_user)):
+    # Check if content already exists
+    existing = await db.articles.count_documents({})
+    if existing > 0:
+        return {"message": "Content already exists"}
+    
+    sample_articles = [
+        {
+            "id": str(uuid.uuid4()),
+            "title": "Master Your Serve: The Key to Winning",
+            "content": """The serve is the most important shot in tennis - it's the only shot you have complete control over.
+
+**The Trophy Position**
+Start with your feet shoulder-width apart. As you toss the ball, raise your racket behind you into the 'trophy position' - like you're about to throw a ball.
+
+**The Toss**
+A consistent toss is crucial. Practice tossing the ball to the same spot every time - slightly in front and to the right (for right-handers).
+
+**The Swing**
+Accelerate through the ball, snapping your wrist at contact. Follow through across your body.
+
+**Practice Drill**
+Try the 'bucket drill' - place a bucket in the service box and try to hit it 10 times in a row. This builds accuracy and consistency.""",
+            "category": "technique",
+            "content_type": "article",
+            "video_url": "https://www.youtube.com/watch?v=9KAjDBlBAnI",
+            "image_url": "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=800",
+            "author_id": admin["id"],
+            "author_name": admin["name"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "title": "Doubles Strategy: Communication is Key",
+            "content": """In doubles, your partnership matters as much as your individual skills.
+
+**Call Every Ball**
+Always communicate with your partner. Call 'mine', 'yours', or 'out' on every ball. It prevents collisions and confusion.
+
+**The I-Formation**
+Try the I-formation to confuse opponents. Server stands wide, partner crouches at the center line, then moves left or right after the serve.
+
+**Poaching**
+The net player should look for opportunities to 'poach' - crossing to intercept a return. Signal to your partner beforehand.
+
+**Cover the Middle**
+The middle of the court is the danger zone. Both players should be ready to cover balls hit between them.
+
+**Stay Positive**
+Encourage your partner, even after errors. A confident team plays better tennis.""",
+            "category": "strategy",
+            "content_type": "article",
+            "video_url": "https://www.youtube.com/watch?v=5GkGBYVZbEI",
+            "image_url": "https://images.unsplash.com/photo-1595435934249-5df7ed86e1c0?w=800",
+            "author_id": admin["id"],
+            "author_name": admin["name"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "title": "Tennis Fitness: Warm-Up Routine",
+            "content": """A proper warm-up prevents injuries and improves performance. Here's a 10-minute routine:
+
+**Dynamic Stretching (3 min)**
+- Arm circles (30 sec each direction)
+- Leg swings (10 each leg)
+- Torso twists (20 reps)
+
+**Light Cardio (3 min)**
+- Jogging in place
+- High knees
+- Butt kicks
+
+**Tennis-Specific (4 min)**
+- Shadow swings (forehand, backhand)
+- Mini-tennis at the service line
+- Volleys with partner
+
+**Cool Down After Play**
+Don't forget to stretch after playing! Focus on shoulders, back, and legs.""",
+            "category": "fitness",
+            "content_type": "article",
+            "video_url": "https://www.youtube.com/watch?v=Bp_SWE_vEwM",
+            "image_url": "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800",
+            "author_id": admin["id"],
+            "author_name": admin["name"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "title": "Choosing the Right Tennis Racket",
+            "content": """Your racket is your most important piece of equipment. Here's how to choose:
+
+**Head Size**
+- Oversize (105+ sq in): More power, larger sweet spot. Good for beginners.
+- Midplus (98-104 sq in): Balance of power and control.
+- Midsize (85-97 sq in): Maximum control for advanced players.
+
+**Weight**
+- Light (9-9.4 oz): Easier to swing, less power.
+- Medium (9.5-10.5 oz): Good balance.
+- Heavy (10.6+ oz): More power and stability.
+
+**String Pattern**
+- Open (16x19): More spin potential.
+- Dense (18x20): More control, durability.
+
+**Grip Size**
+Measure from your palm crease to ring finger tip. Common sizes: 4 1/4, 4 3/8, 4 1/2.
+
+**Our Recommendation**
+For club doubles players, a midplus head with medium weight offers the best versatility.""",
+            "category": "equipment",
+            "content_type": "article",
+            "image_url": "https://images.unsplash.com/photo-1617083934555-ac7c4c1d8b91?w=800",
+            "author_id": admin["id"],
+            "author_name": admin["name"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "title": "The Perfect Volley Technique",
+            "content": """Master the volley to dominate at the net in doubles.
+
+**Ready Position**
+Stand with knees bent, racket up at chest height, and weight on your toes.
+
+**The Punch**
+A volley is a punch, not a swing. Step forward into the ball and block it with a firm wrist.
+
+**Continental Grip**
+Use the continental grip (like holding a hammer) for both forehand and backhand volleys.
+
+**Watch the Ball**
+Keep your eye on the ball all the way to your strings. Many volleys are missed due to looking up too early.
+
+**Angle Your Volleys**
+Aim for angles to put the ball away. A cross-court volley is often more effective than hitting down the line.""",
+            "category": "technique",
+            "content_type": "video",
+            "video_url": "https://www.youtube.com/watch?v=yMFqMmHY5VE",
+            "image_url": "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=800",
+            "author_id": admin["id"],
+            "author_name": admin["name"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    ]
+    
+    await db.articles.insert_many(sample_articles)
+    return {"message": f"Added {len(sample_articles)} sample articles"}
 
 # Include the router
 app.include_router(api_router)

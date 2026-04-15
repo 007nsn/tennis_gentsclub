@@ -11,16 +11,20 @@ import { Badge } from '../components/ui/badge';
 import { useAuth } from '../context/AuthContext';
 import { 
     getMatches, approveMatch, rejectMatch,
-    getTeams, createTeam, deleteTeam,
-    getSchedules, createSchedule, deleteSchedule,
-    getArticles, createArticle, deleteArticle,
+    getTeams, createTeam, deleteTeam, updateTeam,
+    getSchedules, createSchedule, deleteSchedule, generateRoundRobin,
+    getArticles, createArticle, deleteArticle, updateArticle,
     getAnnouncements, createAnnouncement, deleteAnnouncement,
-    getUsers
+    getUsers, updateUser,
+    getSoloLadder, updateSoloPlayer,
+    getAvailability, getUpcomingSundays, sendAvailabilityReminder,
+    getSettings, updateSettings, seedSampleContent
 } from '../lib/api';
 import { toast } from 'sonner';
 import { 
     Shield, Trophy, Calendar, BookOpen, Megaphone, Users, 
-    Check, X, Trash2, Plus, Loader2 
+    Check, X, Trash2, Plus, Loader2, Edit2, Settings, Mail,
+    Video, FileText, Image
 } from 'lucide-react';
 
 export default function Admin() {
@@ -36,12 +40,19 @@ export default function Admin() {
     const [articles, setArticles] = useState([]);
     const [announcements, setAnnouncements] = useState([]);
     const [users, setUsers] = useState([]);
+    const [soloPlayers, setSoloPlayers] = useState([]);
+    const [sundays, setSundays] = useState([]);
+    const [availability, setAvailability] = useState({});
+    const [settings, setSettings] = useState({ num_courts: 2, default_location: 'Local Tennis Club', match_duration_minutes: 30, default_start_time: '09:00' });
 
     // Form states
     const [teamForm, setTeamForm] = useState({ name: '', member_ids: [] });
-    const [scheduleForm, setScheduleForm] = useState({ title: '', description: '', match_date: '', match_time: '', location: '', teams: [] });
-    const [articleForm, setArticleForm] = useState({ title: '', content: '', category: 'technique', video_url: '', image_url: '' });
+    const [scheduleForm, setScheduleForm] = useState({ title: '', description: '', match_date: '', match_time: '09:00', location: '', teams: [] });
+    const [articleForm, setArticleForm] = useState({ title: '', content: '', category: 'technique', content_type: 'article', video_url: '', image_url: '' });
     const [announcementForm, setAnnouncementForm] = useState({ title: '', content: '', priority: 'normal' });
+    const [editingPlayer, setEditingPlayer] = useState(null);
+    const [editingUser, setEditingUser] = useState(null);
+    const [selectedSunday, setSelectedSunday] = useState('');
 
     useEffect(() => {
         if (!user || !isAdmin) {
@@ -53,13 +64,16 @@ export default function Admin() {
 
     const loadAllData = async () => {
         try {
-            const [matchesRes, teamsRes, schedulesRes, articlesRes, announcementsRes, usersRes] = await Promise.all([
+            const [matchesRes, teamsRes, schedulesRes, articlesRes, announcementsRes, usersRes, soloRes, sundaysRes, settingsRes] = await Promise.all([
                 getMatches('pending'),
                 getTeams(),
                 getSchedules(),
                 getArticles(),
                 getAnnouncements(),
-                getUsers()
+                getUsers(),
+                getSoloLadder(),
+                getUpcomingSundays(),
+                getSettings().catch(() => ({ data: settings }))
             ]);
             setPendingMatches(matchesRes.data);
             setTeams(teamsRes.data);
@@ -67,6 +81,17 @@ export default function Admin() {
             setArticles(articlesRes.data);
             setAnnouncements(announcementsRes.data);
             setUsers(usersRes.data);
+            setSoloPlayers(soloRes.data);
+            setSundays(sundaysRes.data.sundays);
+            setSettings(settingsRes.data);
+
+            // Load availability for each Sunday
+            const availMap = {};
+            for (const date of sundaysRes.data.sundays) {
+                const availRes = await getAvailability(date);
+                availMap[date] = availRes.data.filter(a => a.available);
+            }
+            setAvailability(availMap);
         } catch (error) {
             console.error('Error loading data:', error);
         }
@@ -113,16 +138,6 @@ export default function Admin() {
         }
     };
 
-    const handleDeleteTeam = async (teamId) => {
-        try {
-            await deleteTeam(teamId);
-            setTeams(prev => prev.filter(t => t.id !== teamId));
-            toast.success('Team deleted');
-        } catch (error) {
-            toast.error('Failed to delete team');
-        }
-    };
-
     // Schedule handlers
     const handleCreateSchedule = async (e) => {
         e.preventDefault();
@@ -134,7 +149,7 @@ export default function Admin() {
         try {
             const res = await createSchedule(scheduleForm);
             setSchedules(prev => [...prev, res.data]);
-            setScheduleForm({ title: '', description: '', match_date: '', match_time: '', location: '', teams: [] });
+            setScheduleForm({ title: '', description: '', match_date: '', match_time: '09:00', location: '', teams: [] });
             toast.success('Schedule created!');
         } catch (error) {
             toast.error('Failed to create schedule');
@@ -143,13 +158,30 @@ export default function Admin() {
         }
     };
 
-    const handleDeleteSchedule = async (scheduleId) => {
+    const handleGenerateRoundRobin = async () => {
+        if (!selectedSunday) {
+            toast.error('Please select a Sunday');
+            return;
+        }
+        const availCount = (availability[selectedSunday] || []).length;
+        if (availCount < 4) {
+            toast.error(`Need at least 4 available players (currently ${availCount})`);
+            return;
+        }
+        setLoading(true);
         try {
-            await deleteSchedule(scheduleId);
-            setSchedules(prev => prev.filter(s => s.id !== scheduleId));
-            toast.success('Schedule deleted');
+            const res = await generateRoundRobin({
+                date: selectedSunday,
+                num_courts: settings.num_courts,
+                match_duration_minutes: settings.match_duration_minutes,
+                start_time: settings.default_start_time
+            });
+            toast.success(`Round robin generated with ${res.data.player_count} players!`);
+            loadAllData();
         } catch (error) {
-            toast.error('Failed to delete schedule');
+            toast.error(error.response?.data?.detail || 'Failed to generate round robin');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -164,22 +196,12 @@ export default function Admin() {
         try {
             const res = await createArticle(articleForm);
             setArticles(prev => [res.data, ...prev]);
-            setArticleForm({ title: '', content: '', category: 'technique', video_url: '', image_url: '' });
+            setArticleForm({ title: '', content: '', category: 'technique', content_type: 'article', video_url: '', image_url: '' });
             toast.success('Article created!');
         } catch (error) {
             toast.error('Failed to create article');
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleDeleteArticle = async (articleId) => {
-        try {
-            await deleteArticle(articleId);
-            setArticles(prev => prev.filter(a => a.id !== articleId));
-            toast.success('Article deleted');
-        } catch (error) {
-            toast.error('Failed to delete article');
         }
     };
 
@@ -203,13 +225,57 @@ export default function Admin() {
         }
     };
 
-    const handleDeleteAnnouncement = async (annId) => {
+    // Player/User edit handlers
+    const handleUpdatePlayer = async (playerId, wins) => {
         try {
-            await deleteAnnouncement(annId);
-            setAnnouncements(prev => prev.filter(a => a.id !== annId));
-            toast.success('Announcement deleted');
+            await updateSoloPlayer(playerId, { wins: parseInt(wins) });
+            toast.success('Player updated!');
+            setEditingPlayer(null);
+            loadAllData();
         } catch (error) {
-            toast.error('Failed to delete announcement');
+            toast.error('Failed to update player');
+        }
+    };
+
+    const handleUpdateUser = async (userId, name) => {
+        try {
+            await updateUser(userId, { name });
+            toast.success('User updated!');
+            setEditingUser(null);
+            loadAllData();
+        } catch (error) {
+            toast.error('Failed to update user');
+        }
+    };
+
+    // Settings handler
+    const handleUpdateSettings = async () => {
+        try {
+            await updateSettings(settings);
+            toast.success('Settings saved!');
+        } catch (error) {
+            toast.error('Failed to save settings');
+        }
+    };
+
+    // Send reminder
+    const handleSendReminder = async (date) => {
+        try {
+            const res = await sendAvailabilityReminder(date);
+            toast.success(res.data.message);
+        } catch (error) {
+            toast.error('Failed to send reminder');
+        }
+    };
+
+    // Seed content
+    const handleSeedContent = async () => {
+        try {
+            const res = await seedSampleContent();
+            toast.success(res.data.message);
+            loadAllData();
+        } catch (error) {
+            toast.error(error.response?.data?.message || 'Content already exists');
         }
     };
 
@@ -217,7 +283,6 @@ export default function Admin() {
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" data-testid="admin-page">
-            {/* Header */}
             <div className="mb-8">
                 <div className="flex items-center gap-3 mb-2">
                     <Shield className="w-8 h-8 text-[#0051BA]" />
@@ -225,33 +290,35 @@ export default function Admin() {
                         Admin Panel
                     </h1>
                 </div>
-                <p className="text-gray-600">Manage matches, teams, schedules, and content</p>
+                <p className="text-gray-600">Manage matches, teams, schedules, content, and settings</p>
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="bg-white border border-gray-100 p-1 mb-6 flex-wrap h-auto">
+                <TabsList className="bg-white border border-gray-100 p-1 mb-6 flex-wrap h-auto gap-1">
                     <TabsTrigger value="matches" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
                         <Trophy className="w-4 h-4" />
                         Matches
-                        {pendingMatches.length > 0 && (
-                            <Badge className="bg-[#E06040] text-white ml-1">{pendingMatches.length}</Badge>
-                        )}
+                        {pendingMatches.length > 0 && <Badge className="bg-[#E06040] text-white ml-1">{pendingMatches.length}</Badge>}
                     </TabsTrigger>
-                    <TabsTrigger value="teams" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
-                        <Users className="w-4 h-4" />
-                        Teams
-                    </TabsTrigger>
-                    <TabsTrigger value="schedules" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
+                    <TabsTrigger value="roundrobin" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
                         <Calendar className="w-4 h-4" />
-                        Schedule
+                        Round Robin
                     </TabsTrigger>
-                    <TabsTrigger value="articles" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
+                    <TabsTrigger value="players" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
+                        <Users className="w-4 h-4" />
+                        Players
+                    </TabsTrigger>
+                    <TabsTrigger value="content" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
                         <BookOpen className="w-4 h-4" />
-                        Articles
+                        Content
                     </TabsTrigger>
                     <TabsTrigger value="announcements" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
                         <Megaphone className="w-4 h-4" />
                         Announcements
+                    </TabsTrigger>
+                    <TabsTrigger value="settings" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2">
+                        <Settings className="w-4 h-4" />
+                        Settings
                     </TabsTrigger>
                 </TabsList>
 
@@ -271,7 +338,7 @@ export default function Admin() {
                             ) : (
                                 <div className="space-y-4">
                                     {pendingMatches.map(match => (
-                                        <div key={match.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg" data-testid={`pending-match-${match.id}`}>
+                                        <div key={match.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                                             <div>
                                                 <div className="font-medium">
                                                     {match.match_type === 'team' 
@@ -282,25 +349,12 @@ export default function Admin() {
                                                 <div className="text-sm text-gray-500">
                                                     Score: {match.score_a} - {match.score_b} • {new Date(match.match_date).toLocaleDateString()}
                                                 </div>
-                                                <div className="text-xs text-gray-400">
-                                                    Submitted by {match.submitted_by_name}
-                                                </div>
                                             </div>
                                             <div className="flex gap-2">
-                                                <Button 
-                                                    size="sm" 
-                                                    className="bg-green-500 hover:bg-green-600"
-                                                    onClick={() => handleApproveMatch(match.id)}
-                                                    data-testid={`approve-match-${match.id}`}
-                                                >
+                                                <Button size="sm" className="bg-green-500 hover:bg-green-600" onClick={() => handleApproveMatch(match.id)}>
                                                     <Check className="w-4 h-4" />
                                                 </Button>
-                                                <Button 
-                                                    size="sm" 
-                                                    variant="destructive"
-                                                    onClick={() => handleRejectMatch(match.id)}
-                                                    data-testid={`reject-match-${match.id}`}
-                                                >
+                                                <Button size="sm" variant="destructive" onClick={() => handleRejectMatch(match.id)}>
                                                     <X className="w-4 h-4" />
                                                 </Button>
                                             </div>
@@ -312,71 +366,185 @@ export default function Admin() {
                     </Card>
                 </TabsContent>
 
-                {/* Teams Management */}
-                <TabsContent value="teams">
+                {/* Round Robin Generation */}
+                <TabsContent value="roundrobin">
                     <div className="grid lg:grid-cols-2 gap-6">
+                        <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                            <CardHeader>
+                                <CardTitle>Generate Round Robin Schedule</CardTitle>
+                                <CardDescription>Auto-generate doubles matches based on availability</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label>Select Sunday</Label>
+                                    <Select value={selectedSunday} onValueChange={setSelectedSunday}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Choose a date" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {sundays.map(date => (
+                                                <SelectItem key={date} value={date}>
+                                                    {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                                    {' '}({(availability[date] || []).length} players)
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {selectedSunday && (
+                                    <div className="p-4 bg-gray-50 rounded-lg">
+                                        <p className="font-medium mb-2">Available Players ({(availability[selectedSunday] || []).length})</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {(availability[selectedSunday] || []).map(player => (
+                                                <Badge key={player.user_id} variant="outline">{player.user_name}</Badge>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="flex gap-2">
+                                    <Button onClick={handleGenerateRoundRobin} disabled={loading || !selectedSunday} className="btn-primary flex-1">
+                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Generate Round Robin'}
+                                    </Button>
+                                    <Button variant="outline" onClick={() => handleSendReminder(selectedSunday)} disabled={!selectedSunday}>
+                                        <Mail className="w-4 h-4 mr-2" />
+                                        Send Reminder
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                            <CardHeader>
+                                <CardTitle>Manual Schedule</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <form onSubmit={handleCreateSchedule} className="space-y-4">
+                                    <Input value={scheduleForm.title} onChange={(e) => setScheduleForm({ ...scheduleForm, title: e.target.value })} placeholder="Title" />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <Input type="date" value={scheduleForm.match_date} onChange={(e) => setScheduleForm({ ...scheduleForm, match_date: e.target.value })} />
+                                        <Input type="time" value={scheduleForm.match_time} onChange={(e) => setScheduleForm({ ...scheduleForm, match_time: e.target.value })} />
+                                    </div>
+                                    <Input value={scheduleForm.location} onChange={(e) => setScheduleForm({ ...scheduleForm, location: e.target.value })} placeholder="Location" />
+                                    <Textarea value={scheduleForm.description} onChange={(e) => setScheduleForm({ ...scheduleForm, description: e.target.value })} placeholder="Description (optional)" />
+                                    <Button type="submit" className="w-full btn-primary" disabled={loading}>
+                                        <Plus className="w-4 h-4 mr-2" />Create Schedule
+                                    </Button>
+                                </form>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </TabsContent>
+
+                {/* Players Management */}
+                <TabsContent value="players">
+                    <div className="grid lg:grid-cols-2 gap-6">
+                        {/* Edit Players */}
+                        <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                            <CardHeader>
+                                <CardTitle>Solo Ladder Players</CardTitle>
+                                <CardDescription>Edit player names and wins</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-3 max-h-96 overflow-y-auto">
+                                    {soloPlayers.map((player, idx) => (
+                                        <div key={player.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-lg font-bold text-[#0051BA]">#{idx + 1}</span>
+                                                {editingPlayer === player.id ? (
+                                                    <Input
+                                                        type="number"
+                                                        defaultValue={player.wins}
+                                                        className="w-20"
+                                                        onBlur={(e) => handleUpdatePlayer(player.id, e.target.value)}
+                                                        autoFocus
+                                                    />
+                                                ) : (
+                                                    <div>
+                                                        <div className="font-medium">{player.name}</div>
+                                                        <div className="text-sm text-gray-500">{player.wins} wins</div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <Button size="sm" variant="ghost" onClick={() => setEditingPlayer(editingPlayer === player.id ? null : player.id)}>
+                                                <Edit2 className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Edit Users */}
+                        <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                            <CardHeader>
+                                <CardTitle>Club Members</CardTitle>
+                                <CardDescription>Edit member names</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-3 max-h-96 overflow-y-auto">
+                                    {users.map(u => (
+                                        <div key={u.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                            <div className="flex items-center gap-3">
+                                                {u.role === 'admin' && <Badge className="bg-[#0051BA]">Admin</Badge>}
+                                                {editingUser === u.id ? (
+                                                    <Input
+                                                        defaultValue={u.name}
+                                                        className="w-40"
+                                                        onBlur={(e) => handleUpdateUser(u.id, e.target.value)}
+                                                        autoFocus
+                                                    />
+                                                ) : (
+                                                    <div>
+                                                        <div className="font-medium">{u.name}</div>
+                                                        <div className="text-sm text-gray-500">{u.email}</div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <Button size="sm" variant="ghost" onClick={() => setEditingUser(editingUser === u.id ? null : u.id)}>
+                                                <Edit2 className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Teams */}
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                             <CardHeader>
                                 <CardTitle>Create Team</CardTitle>
                             </CardHeader>
                             <CardContent>
                                 <form onSubmit={handleCreateTeam} className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label>Team Name</Label>
-                                        <Input
-                                            value={teamForm.name}
-                                            onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })}
-                                            placeholder="e.g., The Aces"
-                                            data-testid="team-name-input"
-                                        />
+                                    <Input value={teamForm.name} onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })} placeholder="Team Name" />
+                                    <Select onValueChange={(v) => { if (!teamForm.member_ids.includes(v)) setTeamForm({ ...teamForm, member_ids: [...teamForm.member_ids, v] }); }}>
+                                        <SelectTrigger><SelectValue placeholder="Add member" /></SelectTrigger>
+                                        <SelectContent>
+                                            {users.map(u => (<SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>))}
+                                        </SelectContent>
+                                    </Select>
+                                    <div className="flex flex-wrap gap-2">
+                                        {teamForm.member_ids.map(id => {
+                                            const member = users.find(u => u.id === id);
+                                            return (
+                                                <Badge key={id} variant="secondary" className="pr-1">
+                                                    {member?.name}
+                                                    <button type="button" onClick={() => setTeamForm({ ...teamForm, member_ids: teamForm.member_ids.filter(m => m !== id) })} className="ml-1 hover:text-red-500">
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </Badge>
+                                            );
+                                        })}
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>Team Members</Label>
-                                        <Select
-                                            onValueChange={(v) => {
-                                                if (!teamForm.member_ids.includes(v)) {
-                                                    setTeamForm({ ...teamForm, member_ids: [...teamForm.member_ids, v] });
-                                                }
-                                            }}
-                                        >
-                                            <SelectTrigger data-testid="team-members-select">
-                                                <SelectValue placeholder="Add member" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {users.map(u => (
-                                                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <div className="flex flex-wrap gap-2 mt-2">
-                                            {teamForm.member_ids.map(id => {
-                                                const member = users.find(u => u.id === id);
-                                                return (
-                                                    <Badge key={id} variant="secondary" className="pr-1">
-                                                        {member?.name}
-                                                        <button 
-                                                            type="button"
-                                                            onClick={() => setTeamForm({ ...teamForm, member_ids: teamForm.member_ids.filter(m => m !== id) })}
-                                                            className="ml-1 hover:text-red-500"
-                                                        >
-                                                            <X className="w-3 h-3" />
-                                                        </button>
-                                                    </Badge>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                    <Button type="submit" className="w-full btn-primary" disabled={loading} data-testid="create-team-btn">
-                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-                                        Create Team
-                                    </Button>
+                                    <Button type="submit" className="w-full btn-primary" disabled={loading}><Plus className="w-4 h-4 mr-2" />Create Team</Button>
                                 </form>
                             </CardContent>
                         </Card>
+
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                            <CardHeader>
-                                <CardTitle>Existing Teams</CardTitle>
-                            </CardHeader>
+                            <CardHeader><CardTitle>Existing Teams</CardTitle></CardHeader>
                             <CardContent>
                                 <div className="space-y-3 max-h-80 overflow-y-auto">
                                     {teams.map(team => (
@@ -385,7 +553,7 @@ export default function Admin() {
                                                 <div className="font-medium">{team.name}</div>
                                                 <div className="text-sm text-gray-500">{team.member_names?.join(' & ')}</div>
                                             </div>
-                                            <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600" onClick={() => handleDeleteTeam(team.id)}>
+                                            <Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteTeam(team.id).then(loadAllData)}>
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
                                         </div>
@@ -396,93 +564,20 @@ export default function Admin() {
                     </div>
                 </TabsContent>
 
-                {/* Schedule Management */}
-                <TabsContent value="schedules">
+                {/* Content Management */}
+                <TabsContent value="content">
                     <div className="grid lg:grid-cols-2 gap-6">
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                             <CardHeader>
-                                <CardTitle>Create Schedule</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <form onSubmit={handleCreateSchedule} className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label>Title</Label>
-                                        <Input value={scheduleForm.title} onChange={(e) => setScheduleForm({ ...scheduleForm, title: e.target.value })} placeholder="Sunday Round Robin" data-testid="schedule-title-input" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Description (optional)</Label>
-                                        <Textarea value={scheduleForm.description} onChange={(e) => setScheduleForm({ ...scheduleForm, description: e.target.value })} placeholder="Details about the event..." />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label>Date</Label>
-                                            <Input type="date" value={scheduleForm.match_date} onChange={(e) => setScheduleForm({ ...scheduleForm, match_date: e.target.value })} data-testid="schedule-date-input" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Time</Label>
-                                            <Input type="time" value={scheduleForm.match_time} onChange={(e) => setScheduleForm({ ...scheduleForm, match_time: e.target.value })} data-testid="schedule-time-input" />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Location</Label>
-                                        <Input value={scheduleForm.location} onChange={(e) => setScheduleForm({ ...scheduleForm, location: e.target.value })} placeholder="City Tennis Club" data-testid="schedule-location-input" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Teams (comma separated)</Label>
-                                        <Input 
-                                            placeholder="Team A, Team B, Team C" 
-                                            onChange={(e) => setScheduleForm({ ...scheduleForm, teams: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })} 
-                                        />
-                                    </div>
-                                    <Button type="submit" className="w-full btn-primary" disabled={loading} data-testid="create-schedule-btn">
-                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-                                        Create Schedule
-                                    </Button>
-                                </form>
-                            </CardContent>
-                        </Card>
-                        <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                            <CardHeader>
-                                <CardTitle>Scheduled Events</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-3 max-h-96 overflow-y-auto">
-                                    {schedules.map(schedule => (
-                                        <div key={schedule.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                            <div>
-                                                <div className="font-medium">{schedule.title}</div>
-                                                <div className="text-sm text-gray-500">{new Date(schedule.match_date).toLocaleDateString()} • {schedule.match_time}</div>
-                                            </div>
-                                            <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600" onClick={() => handleDeleteSchedule(schedule.id)}>
-                                                <Trash2 className="w-4 h-4" />
-                                            </Button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </TabsContent>
-
-                {/* Articles Management */}
-                <TabsContent value="articles">
-                    <div className="grid lg:grid-cols-2 gap-6">
-                        <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                            <CardHeader>
-                                <CardTitle>Create Article</CardTitle>
+                                <CardTitle>Add Educational Content</CardTitle>
+                                <CardDescription>Create articles, videos, or infographics</CardDescription>
                             </CardHeader>
                             <CardContent>
                                 <form onSubmit={handleCreateArticle} className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label>Title</Label>
-                                        <Input value={articleForm.title} onChange={(e) => setArticleForm({ ...articleForm, title: e.target.value })} placeholder="Master Your Serve" data-testid="article-title-input" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Category</Label>
+                                    <Input value={articleForm.title} onChange={(e) => setArticleForm({ ...articleForm, title: e.target.value })} placeholder="Title" />
+                                    <div className="grid grid-cols-2 gap-4">
                                         <Select value={articleForm.category} onValueChange={(v) => setArticleForm({ ...articleForm, category: v })}>
-                                            <SelectTrigger data-testid="article-category-select">
-                                                <SelectValue />
-                                            </SelectTrigger>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="technique">Technique</SelectItem>
                                                 <SelectItem value="strategy">Strategy</SelectItem>
@@ -490,39 +585,44 @@ export default function Admin() {
                                                 <SelectItem value="equipment">Equipment</SelectItem>
                                             </SelectContent>
                                         </Select>
+                                        <Select value={articleForm.content_type} onValueChange={(v) => setArticleForm({ ...articleForm, content_type: v })}>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="article"><FileText className="w-4 h-4 inline mr-2" />Article</SelectItem>
+                                                <SelectItem value="video"><Video className="w-4 h-4 inline mr-2" />Video</SelectItem>
+                                                <SelectItem value="infographic"><Image className="w-4 h-4 inline mr-2" />Infographic</SelectItem>
+                                            </SelectContent>
+                                        </Select>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>Content</Label>
-                                        <Textarea value={articleForm.content} onChange={(e) => setArticleForm({ ...articleForm, content: e.target.value })} placeholder="Write your article content..." className="min-h-32" data-testid="article-content-input" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>YouTube URL (optional)</Label>
-                                        <Input value={articleForm.video_url} onChange={(e) => setArticleForm({ ...articleForm, video_url: e.target.value })} placeholder="https://youtube.com/watch?v=..." />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Image URL (optional)</Label>
-                                        <Input value={articleForm.image_url} onChange={(e) => setArticleForm({ ...articleForm, image_url: e.target.value })} placeholder="https://..." />
-                                    </div>
-                                    <Button type="submit" className="w-full btn-primary" disabled={loading} data-testid="create-article-btn">
-                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-                                        Create Article
-                                    </Button>
+                                    <Textarea value={articleForm.content} onChange={(e) => setArticleForm({ ...articleForm, content: e.target.value })} placeholder="Content..." className="min-h-32" />
+                                    <Input value={articleForm.video_url} onChange={(e) => setArticleForm({ ...articleForm, video_url: e.target.value })} placeholder="YouTube URL (optional)" />
+                                    <Input value={articleForm.image_url} onChange={(e) => setArticleForm({ ...articleForm, image_url: e.target.value })} placeholder="Image URL (optional)" />
+                                    <Button type="submit" className="w-full btn-primary" disabled={loading}><Plus className="w-4 h-4 mr-2" />Add Content</Button>
                                 </form>
+                                <div className="mt-4 pt-4 border-t">
+                                    <Button variant="outline" onClick={handleSeedContent} className="w-full">
+                                        <BookOpen className="w-4 h-4 mr-2" />Add Sample Content
+                                    </Button>
+                                </div>
                             </CardContent>
                         </Card>
+
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                            <CardHeader>
-                                <CardTitle>Existing Articles</CardTitle>
-                            </CardHeader>
+                            <CardHeader><CardTitle>Existing Content</CardTitle></CardHeader>
                             <CardContent>
-                                <div className="space-y-3 max-h-96 overflow-y-auto">
+                                <div className="space-y-3 max-h-[500px] overflow-y-auto">
                                     {articles.map(article => (
                                         <div key={article.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                            <div>
-                                                <div className="font-medium">{article.title}</div>
-                                                <div className="text-sm text-gray-500">{article.category}</div>
+                                            <div className="flex items-center gap-3">
+                                                {article.content_type === 'video' && <Video className="w-5 h-5 text-red-500" />}
+                                                {article.content_type === 'infographic' && <Image className="w-5 h-5 text-purple-500" />}
+                                                {article.content_type === 'article' && <FileText className="w-5 h-5 text-blue-500" />}
+                                                <div>
+                                                    <div className="font-medium">{article.title}</div>
+                                                    <div className="text-sm text-gray-500">{article.category}</div>
+                                                </div>
                                             </div>
-                                            <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600" onClick={() => handleDeleteArticle(article.id)}>
+                                            <Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteArticle(article.id).then(loadAllData)}>
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
                                         </div>
@@ -537,43 +637,26 @@ export default function Admin() {
                 <TabsContent value="announcements">
                     <div className="grid lg:grid-cols-2 gap-6">
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                            <CardHeader>
-                                <CardTitle>Post Announcement</CardTitle>
-                            </CardHeader>
+                            <CardHeader><CardTitle>Post Announcement</CardTitle></CardHeader>
                             <CardContent>
                                 <form onSubmit={handleCreateAnnouncement} className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label>Title</Label>
-                                        <Input value={announcementForm.title} onChange={(e) => setAnnouncementForm({ ...announcementForm, title: e.target.value })} placeholder="Important Update" data-testid="announcement-title-input" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Content</Label>
-                                        <Textarea value={announcementForm.content} onChange={(e) => setAnnouncementForm({ ...announcementForm, content: e.target.value })} placeholder="Announcement details..." data-testid="announcement-content-input" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Priority</Label>
-                                        <Select value={announcementForm.priority} onValueChange={(v) => setAnnouncementForm({ ...announcementForm, priority: v })}>
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="normal">Normal</SelectItem>
-                                                <SelectItem value="high">High</SelectItem>
-                                                <SelectItem value="urgent">Urgent</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <Button type="submit" className="w-full btn-primary" disabled={loading} data-testid="create-announcement-btn">
-                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-                                        Post Announcement
-                                    </Button>
+                                    <Input value={announcementForm.title} onChange={(e) => setAnnouncementForm({ ...announcementForm, title: e.target.value })} placeholder="Title" />
+                                    <Textarea value={announcementForm.content} onChange={(e) => setAnnouncementForm({ ...announcementForm, content: e.target.value })} placeholder="Content..." />
+                                    <Select value={announcementForm.priority} onValueChange={(v) => setAnnouncementForm({ ...announcementForm, priority: v })}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="normal">Normal</SelectItem>
+                                            <SelectItem value="high">High</SelectItem>
+                                            <SelectItem value="urgent">Urgent</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Button type="submit" className="w-full btn-primary" disabled={loading}><Plus className="w-4 h-4 mr-2" />Post</Button>
                                 </form>
                             </CardContent>
                         </Card>
+
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                            <CardHeader>
-                                <CardTitle>Recent Announcements</CardTitle>
-                            </CardHeader>
+                            <CardHeader><CardTitle>Recent Announcements</CardTitle></CardHeader>
                             <CardContent>
                                 <div className="space-y-3 max-h-80 overflow-y-auto">
                                     {announcements.map(ann => (
@@ -581,11 +664,11 @@ export default function Admin() {
                                             <div>
                                                 <div className="font-medium flex items-center gap-2">
                                                     {ann.title}
-                                                    {ann.priority === 'urgent' && <Badge className="bg-[#E06040] text-white">Urgent</Badge>}
+                                                    {ann.priority === 'urgent' && <Badge className="bg-[#E06040]">Urgent</Badge>}
                                                 </div>
                                                 <div className="text-sm text-gray-500">{new Date(ann.created_at).toLocaleDateString()}</div>
                                             </div>
-                                            <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600" onClick={() => handleDeleteAnnouncement(ann.id)}>
+                                            <Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteAnnouncement(ann.id).then(loadAllData)}>
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
                                         </div>
@@ -594,6 +677,35 @@ export default function Admin() {
                             </CardContent>
                         </Card>
                     </div>
+                </TabsContent>
+
+                {/* Settings */}
+                <TabsContent value="settings">
+                    <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] max-w-xl">
+                        <CardHeader>
+                            <CardTitle>Club Settings</CardTitle>
+                            <CardDescription>Configure court and schedule defaults</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="space-y-2">
+                                <Label>Number of Courts</Label>
+                                <Input type="number" min="1" max="10" value={settings.num_courts} onChange={(e) => setSettings({ ...settings, num_courts: parseInt(e.target.value) })} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Default Location</Label>
+                                <Input value={settings.default_location} onChange={(e) => setSettings({ ...settings, default_location: e.target.value })} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Match Duration (minutes)</Label>
+                                <Input type="number" min="15" max="120" value={settings.match_duration_minutes} onChange={(e) => setSettings({ ...settings, match_duration_minutes: parseInt(e.target.value) })} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Default Start Time</Label>
+                                <Input type="time" value={settings.default_start_time} onChange={(e) => setSettings({ ...settings, default_start_time: e.target.value })} />
+                            </div>
+                            <Button onClick={handleUpdateSettings} className="w-full btn-primary">Save Settings</Button>
+                        </CardContent>
+                    </Card>
                 </TabsContent>
             </Tabs>
         </div>

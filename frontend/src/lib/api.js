@@ -37,14 +37,17 @@ export const register = (data) => api.post('/auth/register', data);
 export const login = (data) => api.post('/auth/login', data);
 export const getMe = () => api.get('/auth/me');
 export const getUsers = () => api.get('/users');
+export const updateUser = (id, data) => api.put(`/users/${id}`, data);
 
 // Teams
 export const createTeam = (data) => api.post('/teams', data);
 export const getTeams = () => api.get('/teams');
+export const updateTeam = (id, data) => api.put(`/teams/${id}`, data);
 export const deleteTeam = (id) => api.delete(`/teams/${id}`);
 
 // Solo Ladder
 export const getSoloLadder = () => api.get('/solo-ladder');
+export const updateSoloPlayer = (id, data) => api.put(`/solo-ladder/${id}`, data);
 
 // Matches
 export const submitMatch = (data) => api.post('/matches', data);
@@ -56,11 +59,13 @@ export const rejectMatch = (id) => api.put(`/matches/${id}/reject`);
 export const createSchedule = (data) => api.post('/schedules', data);
 export const getSchedules = () => api.get('/schedules');
 export const deleteSchedule = (id) => api.delete(`/schedules/${id}`);
+export const generateRoundRobin = (data) => api.post('/schedules/generate-round-robin', data);
 
 // Articles
 export const createArticle = (data) => api.post('/articles', data);
-export const getArticles = (category) => api.get('/articles', { params: { category } });
+export const getArticles = (category, contentType) => api.get('/articles', { params: { category, content_type: contentType } });
 export const getArticle = (id) => api.get(`/articles/${id}`);
+export const updateArticle = (id, data) => api.put(`/articles/${id}`, data);
 export const deleteArticle = (id) => api.delete(`/articles/${id}`);
 
 // Announcements
@@ -72,7 +77,26 @@ export const deleteAnnouncement = (id) => api.delete(`/announcements/${id}`);
 export const sendChatMessage = (message) => api.post('/chat', { message });
 export const getChatHistory = () => api.get('/chat/history');
 
+// Availability
+export const setAvailability = (data) => api.post('/availability', data);
+export const getAvailability = (date) => api.get('/availability', { params: { date } });
+export const getUpcomingSundays = () => api.get('/availability/upcoming-sundays');
+
+// Messages
+export const sendMessage = (data) => api.post('/messages', data);
+export const getMessages = () => api.get('/messages');
+export const markMessageRead = (id) => api.put(`/messages/${id}/read`);
+export const getUnreadCount = () => api.get('/messages/unread-count');
+
+// Settings
+export const getSettings = () => api.get('/settings');
+export const updateSettings = (data) => api.put('/settings', data);
+
 // Stats
 export const getStats = () => api.get('/stats');
+
+// Admin actions
+export const sendAvailabilityReminder = (date) => api.post('/admin/send-availability-reminder', null, { params: { date } });
+export const seedSampleContent = () => api.post('/admin/seed-content');
 
 export default api;

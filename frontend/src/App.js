@@ -16,6 +16,8 @@ import ArticleDetail from "./pages/ArticleDetail";
 import SubmitResult from "./pages/SubmitResult";
 import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
+import Availability from "./pages/Availability";
+import Messages from "./pages/Messages";
 
 function App() {
   return (
@@ -34,6 +36,8 @@ function App() {
             <Route path="/submit-result" element={<SubmitResult />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/availability" element={<Availability />} />
+            <Route path="/messages" element={<Messages />} />
           </Routes>
         </Layout>
         <Toaster position="top-right" richColors />
