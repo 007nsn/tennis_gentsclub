@@ -238,7 +238,7 @@ export default function OpponentScout() {
                                                 Key Tactics
                                             </h4>
                                             <ul className="space-y-2">
-                                                {currentStrategy.key_tactics.map((tactic) => (
+                                                {currentStrategy.key_tactics.map((tactic, idx) => (
                                                     <li key={tactic} className="flex items-start gap-2">
                                                         <Badge className="bg-green-100 text-green-800 mt-0.5">{idx + 1}</Badge>
                                                         <span className="text-gray-700">{tactic}</span>
