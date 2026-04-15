@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { BookOpen, Plus, Trash2, Video, FileText, Image } from 'lucide-react';
+import { BookOpen, Plus, Trash2, Video, FileText, Image, ClipboardList } from 'lucide-react';
 
 export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteArticle, onSeedContent }) {
     const [articleForm, setArticleForm] = useState({ title: '', content: '', category: 'technique', content_type: 'article', video_url: '', image_url: '' });
@@ -48,6 +48,7 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                                         <SelectItem value="article"><FileText className="w-4 h-4 inline mr-2" />Article</SelectItem>
                                         <SelectItem value="video"><Video className="w-4 h-4 inline mr-2" />Video</SelectItem>
                                         <SelectItem value="infographic"><Image className="w-4 h-4 inline mr-2" />Infographic</SelectItem>
+                                        <SelectItem value="survey"><ClipboardList className="w-4 h-4 inline mr-2" />Survey</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -57,9 +58,7 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                             <Button type="submit" className="w-full btn-primary" disabled={loading} data-testid="create-article-btn"><Plus className="w-4 h-4 mr-2" />Add Content</Button>
                         </form>
                         <div className="mt-4 pt-4 border-t">
-                            <Button variant="outline" onClick={onSeedContent} className="w-full" data-testid="seed-content-btn">
-                                <BookOpen className="w-4 h-4 mr-2" />Add Sample Content
-                            </Button>
+                            <p className="text-xs text-gray-500 text-center">Upload articles, videos, infographics, or surveys for your club members to access under "Improve".</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -74,6 +73,7 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                                         {article.content_type === 'video' && <Video className="w-5 h-5 text-red-500" />}
                                         {article.content_type === 'infographic' && <Image className="w-5 h-5 text-purple-500" />}
                                         {article.content_type === 'article' && <FileText className="w-5 h-5 text-blue-500" />}
+                                        {article.content_type === 'survey' && <ClipboardList className="w-5 h-5 text-green-500" />}
                                         <div>
                                             <div className="font-medium">{article.title}</div>
                                             <div className="text-sm text-gray-500">{article.category}</div>
