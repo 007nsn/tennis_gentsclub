@@ -72,9 +72,7 @@ class SoloPlayerResponse(BaseModel):
     id: str
     user_id: str
     name: str
-    wins: int = 0
-    losses: int = 0
-    points: int = 0
+    wins: int = 0  # Each win = 1 point, wins determine ladder position
 
 class MatchCreate(BaseModel):
     match_type: str  # "team" or "solo"
@@ -226,9 +224,7 @@ async def register(user_data: UserCreate):
         "id": str(uuid.uuid4()),
         "user_id": user_id,
         "name": user_data.name,
-        "wins": 0,
-        "losses": 0,
-        "points": 1000  # Starting ELO-like points
+        "wins": 0  # Each win = 1 point for ladder ranking
     }
     await db.solo_players.insert_one(solo_player)
     
@@ -297,7 +293,8 @@ async def delete_team(team_id: str, user: dict = Depends(get_admin_user)):
 
 @api_router.get("/solo-ladder", response_model=List[SoloPlayerResponse])
 async def get_solo_ladder():
-    players = await db.solo_players.find({}, {"_id": 0}).sort("points", -1).to_list(1000)
+    # Sort by wins descending - each win = 1 point
+    players = await db.solo_players.find({}, {"_id": 0}).sort("wins", -1).to_list(1000)
     return [SoloPlayerResponse(**p) for p in players]
 
 # ============ MATCH ROUTES ============
@@ -357,11 +354,10 @@ async def approve_match(match_id: str, user: dict = Depends(get_admin_user)):
     # Update match status
     await db.matches.update_one({"id": match_id}, {"$set": {"status": "approved"}})
     
-    # Update ladder points
-    winner_points = 25
-    loser_points = -15
-    
+    # Update ladder - team uses points system, solo uses wins only
     if match["match_type"] == "team":
+        winner_points = 25
+        loser_points = -15
         if match["score_a"] > match["score_b"]:
             await db.teams.update_one({"id": match["team_a_id"]}, {"$inc": {"wins": 1, "points": winner_points}})
             await db.teams.update_one({"id": match["team_b_id"]}, {"$inc": {"losses": 1, "points": loser_points}})
@@ -369,12 +365,11 @@ async def approve_match(match_id: str, user: dict = Depends(get_admin_user)):
             await db.teams.update_one({"id": match["team_b_id"]}, {"$inc": {"wins": 1, "points": winner_points}})
             await db.teams.update_one({"id": match["team_a_id"]}, {"$inc": {"losses": 1, "points": loser_points}})
     else:
+        # Solo ladder: only winner gets +1 win (each win = 1 point for ranking)
         if match["score_a"] > match["score_b"]:
-            await db.solo_players.update_one({"id": match["player_a_id"]}, {"$inc": {"wins": 1, "points": winner_points}})
-            await db.solo_players.update_one({"id": match["player_b_id"]}, {"$inc": {"losses": 1, "points": loser_points}})
+            await db.solo_players.update_one({"id": match["player_a_id"]}, {"$inc": {"wins": 1}})
         else:
-            await db.solo_players.update_one({"id": match["player_b_id"]}, {"$inc": {"wins": 1, "points": winner_points}})
-            await db.solo_players.update_one({"id": match["player_a_id"]}, {"$inc": {"losses": 1, "points": loser_points}})
+            await db.solo_players.update_one({"id": match["player_b_id"]}, {"$inc": {"wins": 1}})
     
     return {"message": "Match approved and ladder updated"}
 

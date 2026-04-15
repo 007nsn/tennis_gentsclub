@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { Trophy, TrendingUp, TrendingDown, Minus, User } from 'lucide-react';
+import { Trophy, User } from 'lucide-react';
 import { getSoloLadder } from '../lib/api';
 
 export default function SoloLadder() {
@@ -30,12 +30,6 @@ export default function SoloLadder() {
         return '';
     };
 
-    const getWinRate = (wins, losses) => {
-        const total = wins + losses;
-        if (total === 0) return 0;
-        return Math.round((wins / total) * 100);
-    };
-
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" data-testid="solo-ladder-page">
             {/* Header */}
@@ -46,7 +40,7 @@ export default function SoloLadder() {
                         Solo Ladder
                     </h1>
                 </div>
-                <p className="text-gray-600">Individual player rankings</p>
+                <p className="text-gray-600">Individual player rankings • Each set win = 1 point</p>
             </div>
 
             {/* Top 3 Cards */}
@@ -69,8 +63,9 @@ export default function SoloLadder() {
                                     </span>
                                 </div>
                                 <h3 className={`font-bold ${idx === 0 ? 'text-xl' : 'text-lg'}`}>{player.name}</h3>
-                                <div className="text-sm text-gray-500 mb-3">{player.wins}W - {player.losses}L</div>
-                                <div className={`font-bold text-[#0051BA] ${idx === 0 ? 'text-3xl' : 'text-2xl'}`}>{player.points} pts</div>
+                                <div className={`font-bold text-[#0051BA] ${idx === 0 ? 'text-3xl' : 'text-2xl'} mt-2`}>
+                                    {player.wins} {player.wins === 1 ? 'WIN' : 'WINS'}
+                                </div>
                                 {idx === 0 && (
                                     <Badge className="mt-2 bg-[#CCFF00] text-[#002040]">Top Player</Badge>
                                 )}
@@ -100,10 +95,7 @@ export default function SoloLadder() {
                                     <tr className="border-b border-gray-100">
                                         <th className="text-left py-3 px-4 font-mono text-xs uppercase text-gray-500">Rank</th>
                                         <th className="text-left py-3 px-4 font-mono text-xs uppercase text-gray-500">Player</th>
-                                        <th className="text-center py-3 px-4 font-mono text-xs uppercase text-gray-500">W</th>
-                                        <th className="text-center py-3 px-4 font-mono text-xs uppercase text-gray-500">L</th>
-                                        <th className="text-center py-3 px-4 font-mono text-xs uppercase text-gray-500">Win %</th>
-                                        <th className="text-right py-3 px-4 font-mono text-xs uppercase text-gray-500">Points</th>
+                                        <th className="text-right py-3 px-4 font-mono text-xs uppercase text-gray-500">Set Wins</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -128,26 +120,11 @@ export default function SoloLadder() {
                                                     <span className="font-bold">{player.name}</span>
                                                 </div>
                                             </td>
-                                            <td className="py-4 px-4 text-center">
-                                                <span className="text-green-600 font-bold">{player.wins}</span>
-                                            </td>
-                                            <td className="py-4 px-4 text-center">
-                                                <span className="text-red-500 font-bold">{player.losses}</span>
-                                            </td>
-                                            <td className="py-4 px-4 text-center">
-                                                <div className="flex items-center justify-center gap-1">
-                                                    {getWinRate(player.wins, player.losses) >= 50 ? (
-                                                        <TrendingUp className="w-4 h-4 text-green-500" />
-                                                    ) : player.wins + player.losses > 0 ? (
-                                                        <TrendingDown className="w-4 h-4 text-red-500" />
-                                                    ) : (
-                                                        <Minus className="w-4 h-4 text-gray-400" />
-                                                    )}
-                                                    <span className="font-medium">{getWinRate(player.wins, player.losses)}%</span>
-                                                </div>
-                                            </td>
                                             <td className="py-4 px-4 text-right">
-                                                <span className="text-xl font-bold text-[#0051BA]">{player.points}</span>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Trophy className="w-5 h-5 text-[#CCFF00]" />
+                                                    <span className="text-xl font-bold text-[#0051BA]">{player.wins}</span>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -155,6 +132,17 @@ export default function SoloLadder() {
                             </table>
                         </div>
                     )}
+                </CardContent>
+            </Card>
+
+            {/* Info Card */}
+            <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] mt-6 bg-[#0051BA]/5">
+                <CardContent className="p-6">
+                    <h4 className="font-bold mb-2">How the Solo Ladder Works</h4>
+                    <p className="text-gray-600 text-sm">
+                        Each match is a single set. Win a set = earn 1 point. 
+                        Your total wins determine your position in the ladder. Simple as that!
+                    </p>
                 </CardContent>
             </Card>
         </div>
