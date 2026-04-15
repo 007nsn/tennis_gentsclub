@@ -1,64 +1,64 @@
 # Tennis Buddies Club - PRD
 
 ## Original Problem Statement
-Build a website for Sunday doubles tennis buddies to communicate, check schedules and teams for Round Robin matches with Team and Solo Ladder, chatbot, educational content, availability system, and admin management.
+Build a website for Sunday doubles tennis buddies with Team/Solo Ladder, Round Robin scheduling, chatroom communication, and educational content.
 
 ## User Personas
-1. **Club Member**: Views schedules, marks availability for Sundays, submits match results, messages admin, learns from coaching content
-2. **Admin/Coach**: Manages round robin scheduling based on availability, approves matches, creates educational content, edits player stats, configures club settings
+1. **Club Member**: Views schedules, marks availability, submits match results, chats with other members, views match history
+2. **Admin/Coach**: Manages Round Robin scheduling, approves matches, creates educational content, edits player stats
 
-## Core Requirements (Implemented Jan 2026)
+## Implemented Features (Jan 2026)
+
+### Core Features
 - [x] User authentication (JWT-based, first user = admin)
-- [x] Team Ladder with points system (+25 win, -15 loss)
+- [x] Team Ladder with points system
 - [x] **Solo Ladder with wins-only ranking** (each set win = 1 point)
 - [x] Round Robin schedule management with calendar
-- [x] **Availability system** - players mark available Sundays
-- [x] **Round Robin auto-generation** based on available players with court assignments
-- [x] Match result submission with admin approval workflow
+- [x] Match result submission with admin approval
+
+### New Features
+- [x] **Match History Page** - View all past matches with player filter
+- [x] **Player Stats** - Detailed stats per player (wins, losses, win rate, recent form)
+- [x] **Club Chatroom** - Group chat for all members (replaces email notifications)
+- [x] **Availability System** - Players mark available Sundays
+- [x] **Round Robin Tournament Generator** - Auto-generates matches where each player plays every other player once, with court assignments and time slots
+- [x] **Admin Panel Enhancements** - Edit player stats/names, club settings
+- [x] **Educational Content** - 5 sample articles (technique, strategy, fitness, equipment)
 - [x] AI Chatbot (GPT-5.2 via Emergent)
-- [x] **Educational content** with articles, videos, infographics
-- [x] **Sample educational content** (5 articles: serve, doubles strategy, fitness, rackets, volleys)
-- [x] **Player-Admin messaging system**
-- [x] **Admin panel enhancements**: edit player stats/names, club settings, send reminders
-- [x] **Email notifications ready** (Resend configured, needs API key)
-- [x] Announcements system
-- [x] Responsive design with Shadcn UI
 
 ## Architecture
 - Frontend: React 19, Tailwind CSS, Shadcn/UI
 - Backend: FastAPI, Motor (async MongoDB)
 - Database: MongoDB
 - AI: OpenAI GPT-5.2 via Emergent integrations
-- Email: Resend (configured but needs API key)
 
-## Key Features
+## Key Flows
 
-### Availability & Round Robin
-- Players mark availability for upcoming 4 Sundays
-- Admin generates round robin doubles with rotating partners
-- Automatic court assignment and time slots
-- Email reminders for availability
+### Round Robin Generation
+1. Players mark availability for upcoming Sundays
+2. Admin selects a Sunday and generates Round Robin
+3. System creates matches: each player vs every other player
+4. Courts and time slots auto-assigned
+5. Schedule posted to chatroom for all members
 
-### Admin Console
-- Approve/reject match results
-- Edit player stats and names
-- Create teams, schedules, articles
-- Configure club settings (courts, location, times)
-- Send availability reminders
+### Match Result Flow
+1. Player submits match result
+2. Admin reviews and approves/rejects
+3. If approved, Solo Ladder updates (winner +1 win)
+4. Match appears in Match History with stats
 
-### Educational Content
-- Categories: Technique, Strategy, Fitness, Equipment
-- Content types: Articles, Videos, Infographics
-- YouTube embed support
-- Coach-authored materials
+## Pages
+- Home, Schedule, Team Ladder, Solo Ladder, Match History
+- Learn (Education), Chatroom, Availability
+- Profile, Submit Result, Admin Panel
 
 ## Prioritized Backlog
 
 ### P1 (Next)
-- Add Resend API key for email notifications
-- More sample educational content
+- Season standings/leaderboards
+- Match reminders via chatroom
 
 ### P2 (Future)
-- Match history analytics
-- Season standings
 - Mobile app
+- Player head-to-head records
+- Tournament brackets
