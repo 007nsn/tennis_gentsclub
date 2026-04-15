@@ -279,16 +279,6 @@ export default function Admin() {
         }
     };
 
-    // Send reminder
-    const handleSendReminder = async (date) => {
-        try {
-            const res = await sendAvailabilityReminder(date);
-            toast.success(res.data.message);
-        } catch (error) {
-            toast.error('Failed to send reminder');
-        }
-    };
-
     // Seed content
     const handleSeedContent = async () => {
         try {
@@ -448,6 +438,52 @@ export default function Admin() {
                                     <Textarea value={scheduleForm.description} onChange={(e) => setScheduleForm({ ...scheduleForm, description: e.target.value })} placeholder="Description (optional)" />
                                     <Button type="submit" className="w-full btn-primary" disabled={loading}>
                                         <Plus className="w-4 h-4 mr-2" />Create Schedule
+                                    </Button>
+                                </form>
+                            </CardContent>
+                        </Card>
+
+                        {/* Match Reminder */}
+                        <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] lg:col-span-2">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Bell className="w-5 h-5 text-[#E06040]" />
+                                    Send Match Reminder
+                                </CardTitle>
+                                <CardDescription>Post a match reminder directly to the chatroom for all members</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <form onSubmit={handleSendReminder} className="space-y-4">
+                                    <div className="grid md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label>Match Date</Label>
+                                            <Select value={reminderForm.match_date} onValueChange={(v) => setReminderForm({ ...reminderForm, match_date: v })}>
+                                                <SelectTrigger data-testid="reminder-date-select">
+                                                    <SelectValue placeholder="Select a Sunday" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {sundays.map(date => (
+                                                        <SelectItem key={date} value={date}>
+                                                            {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Reminder Message</Label>
+                                            <Textarea
+                                                value={reminderForm.message}
+                                                onChange={(e) => setReminderForm({ ...reminderForm, message: e.target.value })}
+                                                placeholder="e.g., Don't forget! Matches start at 9 AM this Sunday. Bring water and sunscreen!"
+                                                className="min-h-20"
+                                                data-testid="reminder-message-input"
+                                            />
+                                        </div>
+                                    </div>
+                                    <Button type="submit" className="btn-primary" disabled={loading || !reminderForm.match_date || !reminderForm.message} data-testid="send-reminder-btn">
+                                        {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bell className="w-4 h-4 mr-2" />}
+                                        Post Reminder to Chatroom
                                     </Button>
                                 </form>
                             </CardContent>

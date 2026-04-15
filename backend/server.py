@@ -1522,7 +1522,7 @@ async def scout_opponent(request: OpponentScoutRequest, user: dict = Depends(get
             api_key=EMERGENT_LLM_KEY,
             session_id=f"scout-{user['id']}-{uuid.uuid4()}",
             system_message=DOUBLES_STRATEGY_SYSTEM_PROMPT
-        ).with_model("gemini", "gemini-2.5-pro")
+        ).with_model("gemini", "gemini-3.1-pro-preview")
         
         prompt = f"""OPPONENT ANALYSIS REQUEST
 
@@ -1659,7 +1659,7 @@ async def strategy_bot_chat(request: StrategyBotRequest, user: dict = Depends(ge
                 api_key=EMERGENT_LLM_KEY,
                 session_id=session_id,
                 system_message=STRATEGY_BOT_SYSTEM_PROMPT
-            ).with_model("gemini", "gemini-2.5-pro")
+            ).with_model("gemini", "gemini-3.1-pro-preview")
         
         chat = strategy_sessions[session_id]
         
