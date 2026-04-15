@@ -10,7 +10,7 @@ Build a website for Sunday doubles tennis buddies with Team/Solo Ladder, Round R
 ## Implemented Features
 
 ### Core Features (Jan 2026)
-- [x] User authentication (JWT-based, first user = admin)
+- [x] User authentication (JWT-based with httpOnly cookies, first user = admin)
 - [x] Team Ladder with points system
 - [x] Solo Ladder with wins-only ranking (each win = 1 point)
 - [x] Round Robin schedule management with calendar
@@ -25,31 +25,27 @@ Build a website for Sunday doubles tennis buddies with Team/Solo Ladder, Round R
 - [x] AI Chatbot (GPT-5.2 via Emergent)
 
 ### New Features (Apr 2026)
-- [x] **Season Standings** - Cumulative stats with podium, streaks, win rates
-- [x] **Match Reminders** - Admin posts reminders to chatroom from Round Robin tab
-- [x] **Opponent Scout** - Gemini 3.1 Pro AI analyzes opponent playstyle and generates tactical strategies
-- [x] **Live Strategy Bot** - Gemini 3.1 Pro AI chat with session history for doubles strategy advice
+- [x] Season Standings - Cumulative stats with podium, streaks, win rates
+- [x] Match Reminders - Admin posts reminders to chatroom from Round Robin tab
+- [x] Opponent Scout - Gemini 3.1 Pro AI analyzes opponent playstyle
+- [x] Live Strategy Bot - Gemini 3.1 Pro AI chat for doubles strategy advice
+
+### Code Quality Fixes (Apr 2026)
+- [x] httpOnly cookies for auth tokens (dual support: cookie + header)
+- [x] React hook dependencies fixed (useCallback/useMemo across 8+ components)
+- [x] Array index keys replaced with stable identifiers (9 instances)
+- [x] Admin.jsx split into 6 sub-components + useAdminData hook (737 -> ~100 lines)
+- [x] Backend helper extraction (parse_scout_response, calculate_player_season_stats)
+- [x] AuthContext memoized with useMemo
+- [x] Calendar inline props extracted to useMemo
+- [x] Test credentials moved to environment variables
 
 ## Architecture
 - Frontend: React 19, Tailwind CSS, Shadcn/UI
 - Backend: FastAPI, Motor (async MongoDB)
 - Database: MongoDB
 - AI: OpenAI GPT-5.2 + Gemini 3.1 Pro via Emergent integrations
-
-## Key API Endpoints
-- `POST /api/auth/login`, `POST /api/auth/register`
-- `GET /api/season-standings` - Cumulative player stats
-- `POST /api/match-reminders` - Admin posts reminder to chatroom
-- `POST /api/opponent-scout` - AI opponent analysis
-- `POST /api/strategy-bot` - AI strategy chat
-- `POST /api/strategy-bot/new-session` - New chat session
-- `GET /api/scout-reports` - Past scout reports
-
-## Pages
-- Home, Schedule, Team Ladder, Solo Ladder, Match History
-- Season Standings, Learn (Education), Chatroom, Availability
-- Opponent Scout, Strategy Bot (AI Coach)
-- Profile, Submit Result, Admin Panel
+- Auth: JWT with httpOnly cookies (SameSite=lax, Secure) + Bearer header fallback
 
 ## Prioritized Backlog
 
