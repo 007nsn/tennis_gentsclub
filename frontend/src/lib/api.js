@@ -125,4 +125,19 @@ export const getStats = () => api.get('/stats');
 export const sendAvailabilityReminder = (date) => api.post('/admin/send-availability-reminder', null, { params: { date } });
 export const seedSampleContent = () => api.post('/admin/seed-content');
 
+// Weekly Events & Check-In
+export const createWeeklyEvent = (data) => api.post('/weekly-events', data);
+export const getWeeklyEvents = () => api.get('/weekly-events');
+export const getUpcomingWeeklyEvents = () => api.get('/weekly-events/upcoming');
+export const getWeeklyEvent = (id) => api.get(`/weekly-events/${id}`);
+export const deleteWeeklyEvent = (id) => api.delete(`/weekly-events/${id}`);
+export const submitCheckIn = (data) => api.post('/checkins', data);
+export const getEventCheckIns = (eventId) => api.get(`/checkins/${eventId}`);
+export const getMyCheckIn = (eventId) => api.get(`/checkins/${eventId}/me`);
+export const approvePlayers = (eventId, data) => api.post(`/weekly-events/${eventId}/approve`, data);
+export const adminOverride = (eventId, data) => api.post(`/weekly-events/${eventId}/override`, data);
+export const cancelPlayerSpot = (eventId) => api.post(`/weekly-events/${eventId}/cancel-player`);
+export const generateDoublesSchedule = (eventId, data) => api.post(`/weekly-events/${eventId}/generate-schedule`, data);
+export const getCheckInWindow = (eventId) => api.get(`/weekly-events/${eventId}/checkin-window`);
+
 export default api;

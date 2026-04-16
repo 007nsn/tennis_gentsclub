@@ -297,6 +297,36 @@ class ClubSettings(BaseModel):
     default_location: str = "Local Tennis Club"
     match_duration_minutes: int = 30
     default_start_time: str = "09:00"
+    checkin_timezone: str = "US/Eastern"
+
+# ============ WEEKLY CHECK-IN MODELS ============
+
+class WeeklyEventCreate(BaseModel):
+    event_date: str  # YYYY-MM-DD (Sunday)
+    title: Optional[str] = None
+    location: Optional[str] = None
+    start_time: Optional[str] = None
+    num_courts: Optional[int] = None  # Per-event override
+
+class CheckInCreate(BaseModel):
+    event_id: str
+    status: str  # "available", "not_available", "maybe"
+
+class ApprovePlayersRequest(BaseModel):
+    event_id: str
+    approved_player_ids: List[str]
+    waitlist_player_ids: List[str] = []
+
+class AdminOverrideRequest(BaseModel):
+    event_id: str
+    player_id: str
+    action: str  # "add_approved", "move_to_waitlist", "remove"
+
+class GenerateDoublesRRRequest(BaseModel):
+    event_id: str
+    num_courts: Optional[int] = None
+    start_time: Optional[str] = None
+    match_duration_minutes: Optional[int] = None
 
 # ============ AUTH HELPERS ============
 
@@ -1756,6 +1786,432 @@ async def new_strategy_session(user: dict = Depends(get_current_user)):
     """Start a new strategy bot session"""
     session_id = f"strategy-{user['id']}-{uuid.uuid4()}"
     return {"session_id": session_id}
+
+# ============ DOUBLES ROUND ROBIN ALGORITHM ============
+
+def generate_doubles_round_robin(players: List[dict], num_courts: int) -> List[dict]:
+    """
+    Generate a doubles round robin schedule.
+    - Format: 2v2
+    - Rotate partners every round (no same partner consecutively)
+    - Minimize repeat opponents
+    - Fair bye distribution if not divisible by 4
+    """
+    import random
+    n = len(players)
+    if n < 4:
+        return []
+
+    player_ids = [p["id"] for p in players]
+    player_map = {p["id"]: p["name"] for p in players}
+    rounds = []
+    partner_history = {}  # track how many times each pair has partnered
+    opponent_history = {}  # track how many times each pair has opposed
+    bye_counts = {pid: 0 for pid in player_ids}
+    last_partners = {}  # who each player partnered with last round
+
+    # Number of rounds = enough for everyone to play multiple times
+    num_rounds = max(n - 1, 4)
+    players_per_match = 4
+    available_slots = num_courts * players_per_match
+
+    for round_num in range(num_rounds):
+        # Select players for this round (handle byes)
+        active_count = min(len(player_ids), available_slots)
+        # Make active count divisible by 4
+        active_count = (active_count // 4) * 4
+
+        if active_count < 4:
+            break
+
+        # Choose who sits out (fairest bye distribution)
+        if active_count < len(player_ids):
+            # Sort by bye_counts ascending, then shuffle ties
+            sorted_players = sorted(player_ids, key=lambda pid: (bye_counts[pid], random.random()))
+            active_players = sorted_players[:active_count]
+            bye_players = sorted_players[active_count:]
+            for bp in bye_players:
+                bye_counts[bp] += 1
+        else:
+            active_players = list(player_ids)
+            bye_players = []
+
+        # Generate pairings that avoid consecutive same partners
+        best_matches = None
+        best_score = float('inf')
+
+        for attempt in range(50):
+            random.shuffle(active_players)
+            matches = []
+            attempt_score = 0
+
+            for i in range(0, len(active_players), 4):
+                if i + 3 >= len(active_players):
+                    break
+                p1, p2, p3, p4 = active_players[i], active_players[i+1], active_players[i+2], active_players[i+3]
+                team_a = (p1, p2)
+                team_b = (p3, p4)
+
+                # Penalize same partner as last round
+                pair_a = tuple(sorted(team_a))
+                pair_b = tuple(sorted(team_b))
+                if last_partners.get(p1) == p2 or last_partners.get(p2) == p1:
+                    attempt_score += 10
+                if last_partners.get(p3) == p4 or last_partners.get(p4) == p3:
+                    attempt_score += 10
+
+                # Penalize repeat partners/opponents
+                attempt_score += partner_history.get(pair_a, 0) * 3
+                attempt_score += partner_history.get(pair_b, 0) * 3
+                for pa in team_a:
+                    for pb in team_b:
+                        opp_pair = tuple(sorted((pa, pb)))
+                        attempt_score += opponent_history.get(opp_pair, 0)
+
+                court = (len(matches) % num_courts) + 1
+                matches.append({
+                    "team_a": list(team_a),
+                    "team_b": list(team_b),
+                    "court": court,
+                })
+
+            if attempt_score < best_score:
+                best_score = attempt_score
+                best_matches = matches
+
+        if not best_matches:
+            continue
+
+        # Update histories
+        for m in best_matches:
+            pair_a = tuple(sorted(m["team_a"]))
+            pair_b = tuple(sorted(m["team_b"]))
+            partner_history[pair_a] = partner_history.get(pair_a, 0) + 1
+            partner_history[pair_b] = partner_history.get(pair_b, 0) + 1
+            for pa in m["team_a"]:
+                for pb in m["team_b"]:
+                    opp_pair = tuple(sorted((pa, pb)))
+                    opponent_history[opp_pair] = opponent_history.get(opp_pair, 0) + 1
+            # Track last partners
+            last_partners[m["team_a"][0]] = m["team_a"][1]
+            last_partners[m["team_a"][1]] = m["team_a"][0]
+            last_partners[m["team_b"][0]] = m["team_b"][1]
+            last_partners[m["team_b"][1]] = m["team_b"][0]
+
+        # Build round data
+        round_data = {
+            "round": round_num + 1,
+            "matches": [],
+            "byes": [{"id": bp, "name": player_map[bp]} for bp in bye_players]
+        }
+        for m in best_matches:
+            round_data["matches"].append({
+                "court": m["court"],
+                "team_a": [{"id": pid, "name": player_map[pid]} for pid in m["team_a"]],
+                "team_b": [{"id": pid, "name": player_map[pid]} for pid in m["team_b"]],
+            })
+        rounds.append(round_data)
+
+    return rounds
+
+
+# ============ WEEKLY CHECK-IN & EVENT ROUTES ============
+
+@api_router.post("/weekly-events")
+async def create_weekly_event(data: WeeklyEventCreate, admin: dict = Depends(get_admin_user)):
+    """Admin creates a Sunday event"""
+    settings = await db.settings.find_one({}, {"_id": 0}) or {}
+    event_id = str(uuid.uuid4())
+    event = {
+        "id": event_id,
+        "event_date": data.event_date,
+        "title": data.title or f"Sunday Doubles - {data.event_date}",
+        "location": data.location or settings.get("default_location", "Local Tennis Club"),
+        "start_time": data.start_time or settings.get("default_start_time", "09:00"),
+        "num_courts": data.num_courts or settings.get("num_courts", 2),
+        "status": "open",  # open, approved, scheduled
+        "approved_players": [],
+        "waitlist_players": [],
+        "generated_schedule": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": admin["id"]
+    }
+    await db.weekly_events.insert_one(event)
+    return {k: v for k, v in event.items() if k != "_id"}
+
+@api_router.get("/weekly-events")
+async def get_weekly_events():
+    """Get all weekly events"""
+    events = await db.weekly_events.find({}, {"_id": 0}).sort("event_date", -1).to_list(50)
+    return events
+
+@api_router.get("/weekly-events/upcoming")
+async def get_upcoming_weekly_events():
+    """Get upcoming events (today and future)"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    events = await db.weekly_events.find(
+        {"event_date": {"$gte": today}}, {"_id": 0}
+    ).sort("event_date", 1).to_list(10)
+    return events
+
+@api_router.get("/weekly-events/{event_id}")
+async def get_weekly_event(event_id: str):
+    """Get single event with check-ins"""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    # Attach check-ins
+    checkins = await db.checkins.find({"event_id": event_id}, {"_id": 0}).to_list(200)
+    event["checkins"] = checkins
+    return event
+
+@api_router.delete("/weekly-events/{event_id}")
+async def delete_weekly_event(event_id: str, admin: dict = Depends(get_admin_user)):
+    """Admin deletes an event"""
+    await db.weekly_events.delete_one({"id": event_id})
+    await db.checkins.delete_many({"event_id": event_id})
+    return {"message": "Event deleted"}
+
+# --- Check-in routes ---
+
+@api_router.post("/checkins")
+async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_user)):
+    """User submits or updates their check-in for an event"""
+    event = await db.weekly_events.find_one({"id": data.event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    if data.status not in ("available", "not_available", "maybe"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    # Check if Wednesday 7AM gate has passed (using configured timezone)
+    settings = await db.settings.find_one({}, {"_id": 0}) or {}
+    tz_name = settings.get("checkin_timezone", "US/Eastern")
+    try:
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+    now_local = datetime.now(tz)
+    event_date = datetime.strptime(event["event_date"], "%Y-%m-%d").replace(tzinfo=tz)
+    # Wednesday before the Sunday = Sunday - 4 days
+    wed_open = (event_date - timedelta(days=4)).replace(hour=7, minute=0, second=0, microsecond=0)
+    if now_local < wed_open:
+        raise HTTPException(status_code=400, detail=f"Check-in opens Wednesday at 7:00 AM ({tz_name})")
+
+    checkin_id = str(uuid.uuid4())
+    # Upsert
+    existing = await db.checkins.find_one({"event_id": data.event_id, "user_id": user["id"]})
+    if existing:
+        await db.checkins.update_one(
+            {"event_id": data.event_id, "user_id": user["id"]},
+            {"$set": {"status": data.status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        return {"message": "Check-in updated", "status": data.status}
+    else:
+        checkin = {
+            "id": checkin_id,
+            "event_id": data.event_id,
+            "user_id": user["id"],
+            "user_name": user["name"],
+            "status": data.status,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.checkins.insert_one(checkin)
+        return {"message": "Check-in submitted", "status": data.status}
+
+@api_router.get("/checkins/{event_id}")
+async def get_event_checkins(event_id: str):
+    """Get all check-ins for an event"""
+    checkins = await db.checkins.find({"event_id": event_id}, {"_id": 0}).to_list(200)
+    return checkins
+
+@api_router.get("/checkins/{event_id}/me")
+async def get_my_checkin(event_id: str, user: dict = Depends(get_current_user)):
+    """Get current user's check-in for an event"""
+    checkin = await db.checkins.find_one(
+        {"event_id": event_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    return checkin or {"status": None}
+
+# --- Admin approval routes ---
+
+@api_router.post("/weekly-events/{event_id}/approve")
+async def approve_players(event_id: str, data: ApprovePlayersRequest, admin: dict = Depends(get_admin_user)):
+    """Admin approves the player list for an event"""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Get player names
+    approved = []
+    for pid in data.approved_player_ids:
+        u = await db.users.find_one({"id": pid}, {"_id": 0, "id": 1, "name": 1})
+        if u:
+            approved.append({"id": u["id"], "name": u["name"]})
+    waitlist = []
+    for pid in data.waitlist_player_ids:
+        u = await db.users.find_one({"id": pid}, {"_id": 0, "id": 1, "name": 1})
+        if u:
+            waitlist.append({"id": u["id"], "name": u["name"]})
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {
+        "approved_players": approved,
+        "waitlist_players": waitlist,
+        "status": "approved"
+    }})
+    return {"message": f"Approved {len(approved)} players, {len(waitlist)} on waitlist"}
+
+@api_router.post("/weekly-events/{event_id}/override")
+async def admin_override(event_id: str, data: AdminOverrideRequest, admin: dict = Depends(get_admin_user)):
+    """Admin manually adds/moves/removes a player"""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    u = await db.users.find_one({"id": data.player_id}, {"_id": 0, "id": 1, "name": 1})
+    if not u:
+        raise HTTPException(status_code=404, detail="Player not found")
+
+    approved = event.get("approved_players", [])
+    waitlist = event.get("waitlist_players", [])
+    player_entry = {"id": u["id"], "name": u["name"]}
+
+    # Remove from both lists first
+    approved = [p for p in approved if p["id"] != data.player_id]
+    waitlist = [p for p in waitlist if p["id"] != data.player_id]
+
+    if data.action == "add_approved":
+        approved.append(player_entry)
+    elif data.action == "move_to_waitlist":
+        waitlist.append(player_entry)
+    elif data.action == "remove":
+        pass  # already removed
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {
+        "approved_players": approved,
+        "waitlist_players": waitlist,
+    }})
+    return {"message": f"Player {data.action}", "approved_count": len(approved), "waitlist_count": len(waitlist)}
+
+@api_router.post("/weekly-events/{event_id}/cancel-player")
+async def cancel_player(event_id: str, user: dict = Depends(get_current_user)):
+    """Player cancels their approved spot — auto-promote from waitlist"""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    approved = event.get("approved_players", [])
+    waitlist = event.get("waitlist_players", [])
+
+    was_approved = any(p["id"] == user["id"] for p in approved)
+    approved = [p for p in approved if p["id"] != user["id"]]
+
+    # Auto-promote first waitlisted player
+    promoted = None
+    if was_approved and waitlist:
+        promoted = waitlist.pop(0)
+        approved.append(promoted)
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {
+        "approved_players": approved,
+        "waitlist_players": waitlist,
+    }})
+
+    # Update check-in status
+    await db.checkins.update_one(
+        {"event_id": event_id, "user_id": user["id"]},
+        {"$set": {"status": "not_available", "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    msg = "Cancelled"
+    if promoted:
+        msg += f". {promoted['name']} auto-promoted from waitlist."
+    return {"message": msg}
+
+# --- Generate Doubles Round Robin ---
+
+@api_router.post("/weekly-events/{event_id}/generate-schedule")
+async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRRequest, admin: dict = Depends(get_admin_user)):
+    """Generate doubles round robin from approved players"""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    approved = event.get("approved_players", [])
+    if len(approved) < 4:
+        raise HTTPException(status_code=400, detail=f"Need at least 4 approved players (have {len(approved)})")
+
+    settings = await db.settings.find_one({}, {"_id": 0}) or {}
+    nc = data.num_courts or event.get("num_courts") or settings.get("num_courts", 2)
+    st = data.start_time or event.get("start_time") or settings.get("default_start_time", "09:00")
+    dur = data.match_duration_minutes or settings.get("match_duration_minutes", 30)
+
+    rounds = generate_doubles_round_robin(approved, nc)
+
+    # Assign time slots
+    start_hour, start_min = map(int, st.split(":"))
+    for r in rounds:
+        round_time = datetime.now().replace(hour=start_hour, minute=start_min) + timedelta(minutes=dur * (r["round"] - 1))
+        r["time"] = round_time.strftime("%H:%M")
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {
+        "generated_schedule": rounds,
+        "status": "scheduled",
+        "schedule_settings": {"num_courts": nc, "start_time": st, "match_duration": dur}
+    }})
+
+    # Post to chatroom
+    lines = [f"DOUBLES SCHEDULE — {event['title']}"]
+    for r in rounds:
+        lines.append(f"\nRound {r['round']} ({r['time']}):")
+        for m in r["matches"]:
+            ta = " & ".join([p["name"] for p in m["team_a"]])
+            tb = " & ".join([p["name"] for p in m["team_b"]])
+            lines.append(f"  Court {m['court']}: {ta}  vs  {tb}")
+        if r.get("byes"):
+            lines.append(f"  Bye: {', '.join([b['name'] for b in r['byes']])}")
+
+    await db.chatroom.insert_one({
+        "id": str(uuid.uuid4()),
+        "sender_id": admin["id"],
+        "sender_name": admin["name"],
+        "sender_role": "admin",
+        "content": "\n".join(lines),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "is_schedule": True
+    })
+
+    return {"message": f"Schedule generated: {len(rounds)} rounds", "rounds": rounds}
+
+@api_router.get("/weekly-events/{event_id}/checkin-window")
+async def get_checkin_window(event_id: str):
+    """Check if the check-in window is open for an event"""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    settings = await db.settings.find_one({}, {"_id": 0}) or {}
+    tz_name = settings.get("checkin_timezone", "US/Eastern")
+    try:
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+    now_local = datetime.now(tz)
+    event_date = datetime.strptime(event["event_date"], "%Y-%m-%d").replace(tzinfo=tz)
+    wed_open = (event_date - timedelta(days=4)).replace(hour=7, minute=0, second=0, microsecond=0)
+
+    return {
+        "is_open": now_local >= wed_open,
+        "opens_at": wed_open.isoformat(),
+        "timezone": tz_name,
+        "event_status": event.get("status", "open")
+    }
+
 
 # Include the router
 app.include_router(api_router)
