@@ -223,6 +223,16 @@ export const Layout = ({ children }) => {
                                 Every Sunday morning<br />
                                 Local Tennis Courts
                             </p>
+                            <a
+                                href="https://www.emergentagent.com"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-[#CCFF00] text-[#002040] rounded-lg text-sm font-bold hover:bg-[#B3E600] transition-colors"
+                                data-testid="support-site-btn"
+                            >
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                                Support This Site
+                            </a>
                         </div>
                     </div>
                     <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-500 text-sm">

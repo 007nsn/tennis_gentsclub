@@ -308,6 +308,31 @@ export default function Home() {
                     </div>
                 </section>
             )}
+            {/* Support Banner */}
+            <section className="py-8">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="bg-gradient-to-r from-[#0F172A] to-[#1E293B] rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-[#CCFF00] rounded-full flex items-center justify-center shrink-0">
+                                <svg className="w-5 h-5 text-[#002040]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            </div>
+                            <div>
+                                <p className="text-white font-bold text-sm">Love Tennis Buddies Club?</p>
+                                <p className="text-gray-400 text-xs">Help keep the site running by supporting us on Emergent</p>
+                            </div>
+                        </div>
+                        <a
+                            href="https://www.emergentagent.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#CCFF00] text-[#002040] rounded-lg text-sm font-bold hover:bg-[#B3E600] transition-colors shrink-0"
+                            data-testid="home-support-btn"
+                        >
+                            Support This Site
+                        </a>
+                    </div>
+                </div>
+            </section>
         </div>
     );
 }
