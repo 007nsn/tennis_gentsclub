@@ -2302,6 +2302,7 @@ async def clear_test_data(admin: dict = Depends(get_admin_user)):
     del_events = await db.weekly_events.delete_many({})
     del_checkins = await db.checkins.delete_many({})
     del_teams = await db.teams.delete_many({})
+    del_availability = await db.availability.delete_many({})
     del_chatroom = await db.chatroom.delete_many({})
     del_announcements = await db.announcements.delete_many({})
     del_articles = await db.articles.delete_many({})
