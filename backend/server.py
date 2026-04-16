@@ -1153,6 +1153,85 @@ async def get_all_player_stats():
     stats.sort(key=lambda x: x["wins"], reverse=True)
     return stats
 
+# ============ HEAD-TO-HEAD RECORDS ============
+
+@api_router.get("/head-to-head/{player_a_id}/{player_b_id}")
+async def get_head_to_head(player_a_id: str, player_b_id: str):
+    """Get head-to-head record between two players"""
+    player_a = await db.solo_players.find_one({"id": player_a_id}, {"_id": 0})
+    player_b = await db.solo_players.find_one({"id": player_b_id}, {"_id": 0})
+    if not player_a or not player_b:
+        raise HTTPException(status_code=404, detail="Player not found")
+
+    matches = await db.matches.find({
+        "status": "approved",
+        "match_type": "solo",
+        "$or": [
+            {"player_a_id": player_a_id, "player_b_id": player_b_id},
+            {"player_a_id": player_b_id, "player_b_id": player_a_id},
+        ]
+    }, {"_id": 0}).sort("match_date", -1).to_list(500)
+
+    a_wins = 0
+    b_wins = 0
+    match_list = []
+    for m in matches:
+        a_is_player_a = m["player_a_id"] == player_a_id
+        a_score = m["score_a"] if a_is_player_a else m["score_b"]
+        b_score = m["score_b"] if a_is_player_a else m["score_a"]
+        a_won = a_score > b_score
+        if a_won:
+            a_wins += 1
+        else:
+            b_wins += 1
+        match_list.append({
+            "date": m["match_date"],
+            "a_score": a_score,
+            "b_score": b_score,
+            "winner": player_a["name"] if a_won else player_b["name"],
+        })
+
+    return {
+        "player_a": {"id": player_a_id, "name": player_a["name"]},
+        "player_b": {"id": player_b_id, "name": player_b["name"]},
+        "total_matches": len(matches),
+        "a_wins": a_wins,
+        "b_wins": b_wins,
+        "matches": match_list,
+    }
+
+@api_router.get("/head-to-head-matrix")
+async def get_head_to_head_matrix():
+    """Get full head-to-head matrix for all players"""
+    players = await db.solo_players.find({}, {"_id": 0}).sort("wins", -1).to_list(100)
+    all_matches = await db.matches.find(
+        {"status": "approved", "match_type": "solo"}, {"_id": 0}
+    ).to_list(5000)
+
+    # Build a wins lookup: (winner_id, loser_id) -> count
+    wins_map = {}
+    for m in all_matches:
+        a_won = m["score_a"] > m["score_b"]
+        winner = m["player_a_id"] if a_won else m["player_b_id"]
+        loser = m["player_b_id"] if a_won else m["player_a_id"]
+        key = (winner, loser)
+        wins_map[key] = wins_map.get(key, 0) + 1
+
+    player_list = [{"id": p["id"], "name": p["name"]} for p in players]
+    matrix = {}
+    for p in player_list:
+        row = {}
+        for opp in player_list:
+            if p["id"] == opp["id"]:
+                row[opp["id"]] = None
+            else:
+                w = wins_map.get((p["id"], opp["id"]), 0)
+                losses = wins_map.get((opp["id"], p["id"]), 0)
+                row[opp["id"]] = {"wins": w, "losses": losses, "total": w + losses}
+        matrix[p["id"]] = row
+
+    return {"players": player_list, "matrix": matrix}
+
 # ============ ANNOUNCEMENTS ROUTES ============
 
 @api_router.post("/announcements", response_model=AnnouncementResponse)

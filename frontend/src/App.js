@@ -22,6 +22,7 @@ import Availability from "./pages/Availability";
 import Chatroom from "./pages/Chatroom";
 import OpponentScout from "./pages/OpponentScout";
 import StrategyBot from "./pages/StrategyBot";
+import HeadToHead from "./pages/HeadToHead";
 
 function App() {
   return (
@@ -46,6 +47,7 @@ function App() {
             <Route path="/chatroom" element={<Chatroom />} />
             <Route path="/opponent-scout" element={<OpponentScout />} />
             <Route path="/strategy-bot" element={<StrategyBot />} />
+            <Route path="/head-to-head" element={<HeadToHead />} />
           </Routes>
         </Layout>
         <Toaster position="top-right" richColors />
