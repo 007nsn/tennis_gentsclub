@@ -225,7 +225,7 @@ export const Layout = ({ children }) => {
                                 Local Tennis Courts
                             </p>
                             <a
-                                href="https://www.emergentagent.com"
+                                href="https://venmo.com/u/Sergei-Nabatov"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-[#CCFF00] text-[#002040] rounded-lg text-sm font-bold hover:bg-[#B3E600] transition-colors"

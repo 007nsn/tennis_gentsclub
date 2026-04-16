@@ -285,7 +285,7 @@ export default function Home() {
                             </div>
                         </div>
                         <a
-                            href="https://www.emergentagent.com"
+                            href="https://venmo.com/u/Sergei-Nabatov"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#CCFF00] text-[#002040] rounded-lg text-sm font-bold hover:bg-[#B3E600] transition-colors shrink-0"
