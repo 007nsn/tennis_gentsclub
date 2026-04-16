@@ -70,15 +70,7 @@ export default function Admin() {
                     onReject={data.handleRejectMatch}
                 />
 
-                <AdminRoundRobinTab
-                    sundays={data.sundays}
-                    availability={data.availability}
-                    settings={data.settings}
-                    loading={data.loading}
-                    onCreateSchedule={data.handleCreateSchedule}
-                    onSendReminder={data.handleSendReminder}
-                    onRefresh={data.loadAllData}
-                />
+                <AdminRoundRobinTab />
 
                 <AdminPlayersTab
                     soloPlayers={data.soloPlayers}
