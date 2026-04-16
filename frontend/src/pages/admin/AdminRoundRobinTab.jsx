@@ -7,11 +7,11 @@ import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Badge } from '../../components/ui/badge';
-import { Plus, Loader2, Bell, Calendar, Users, Shuffle, Trash2 } from 'lucide-react';
+import { Plus, Loader2, Bell, Calendar, Users, Shuffle, Trash2, Lock, Unlock, UserPlus, Armchair } from 'lucide-react';
 import {
     getUpcomingWeeklyEvents, createWeeklyEvent, getEventCheckIns,
     approvePlayers, generateDoublesSchedule, deleteWeeklyEvent,
-    createMatchReminder
+    createMatchReminder, closeRsvp, reopenRsvp, addExternalPlayer
 } from '../../lib/api';
 import { toast } from 'sonner';
 
@@ -20,11 +20,11 @@ export function AdminRoundRobinTab() {
     const [loading, setLoading] = useState(false);
     const [newEventDate, setNewEventDate] = useState('');
     const [reminderForm, setReminderForm] = useState({ match_date: '', message: '' });
+    const [extNames, setExtNames] = useState({});
 
     const loadEvents = useCallback(async () => {
         try {
             const res = await getUpcomingWeeklyEvents();
-            // Enrich each event with check-in data
             const enriched = await Promise.all(res.data.map(async (ev) => {
                 const checkinsRes = await getEventCheckIns(ev.id);
                 return { ...ev, checkins: checkinsRes.data };
@@ -83,6 +83,33 @@ export function AdminRoundRobinTab() {
         } catch (e) { toast.error('Delete failed'); }
     };
 
+    const handleCloseRsvp = async (ev) => {
+        try {
+            await closeRsvp(ev.id);
+            toast.success('RSVP closed. Late players can only join the Bench.');
+            loadEvents();
+        } catch (e) { toast.error('Failed to close RSVP'); }
+    };
+
+    const handleReopenRsvp = async (ev) => {
+        try {
+            await reopenRsvp(ev.id);
+            toast.success('RSVP reopened.');
+            loadEvents();
+        } catch (e) { toast.error('Failed to reopen RSVP'); }
+    };
+
+    const handleAddExternal = async (ev) => {
+        const name = (extNames[ev.id] || '').trim();
+        if (!name) return;
+        try {
+            await addExternalPlayer(ev.id, { name });
+            toast.success(`External player "${name}" added!`);
+            setExtNames(prev => ({ ...prev, [ev.id]: '' }));
+            loadEvents();
+        } catch (e) { toast.error('Failed to add player'); }
+    };
+
     const handleSendReminder = async (e) => {
         e.preventDefault();
         if (!reminderForm.match_date || !reminderForm.message) {
@@ -123,7 +150,7 @@ export function AdminRoundRobinTab() {
                             <Calendar className="w-5 h-5 text-[#0051BA]" />
                             Create Sunday Event
                         </CardTitle>
-                        <CardDescription>Create an event to open check-in for members (opens Monday 7 AM)</CardDescription>
+                        <CardDescription>Create an event to open RSVP for members</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="space-y-2">
@@ -197,7 +224,10 @@ export function AdminRoundRobinTab() {
                             {events.map(ev => {
                                 const available = (ev.checkins || []).filter(c => c.status === 'available');
                                 const maybe = (ev.checkins || []).filter(c => c.status === 'maybe');
+                                const benchCheckins = (ev.checkins || []).filter(c => c.status === 'bench');
                                 const approved = ev.approved_players || [];
+                                const benchPlayers = ev.bench_players || [];
+                                const rsvpClosed = ev.rsvp_closed;
                                 return (
                                     <div key={ev.id} className="p-4 border border-gray-100 rounded-lg space-y-3" data-testid={`admin-event-${ev.id}`}>
                                         <div className="flex items-center justify-between">
@@ -206,6 +236,7 @@ export function AdminRoundRobinTab() {
                                                 <p className="text-sm text-gray-500">{new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
                                             </div>
                                             <div className="flex items-center gap-2">
+                                                {rsvpClosed && <Badge className="bg-red-100 text-red-700"><Lock className="w-3 h-3 mr-1" />RSVP Closed</Badge>}
                                                 <Badge className={ev.status === 'scheduled' ? 'bg-green-100 text-green-800' : ev.status === 'approved' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}>
                                                     {ev.status}
                                                 </Badge>
@@ -219,6 +250,7 @@ export function AdminRoundRobinTab() {
                                         <div className="flex gap-4 text-sm">
                                             <span className="text-green-700"><Users className="w-4 h-4 inline mr-1" />{available.length} Available</span>
                                             <span className="text-amber-700">{maybe.length} Maybe</span>
+                                            <span className="text-orange-700"><Armchair className="w-4 h-4 inline mr-1" />{benchCheckins.length} Bench</span>
                                             <span className="text-blue-700">{approved.length} Approved</span>
                                         </div>
 
@@ -230,8 +262,27 @@ export function AdminRoundRobinTab() {
                                             </div>
                                         )}
 
+                                        {/* Bench players */}
+                                        {benchPlayers.length > 0 && (
+                                            <div className="flex flex-wrap gap-1">
+                                                <span className="text-xs text-orange-600 mr-1">Bench:</span>
+                                                {benchPlayers.map((p, i) => <Badge key={p.id || i} className="bg-orange-100 text-orange-800 text-xs">#{i+1} {p.name}</Badge>)}
+                                            </div>
+                                        )}
+
                                         {/* Actions */}
-                                        <div className="flex gap-2">
+                                        <div className="flex flex-wrap gap-2">
+                                            {/* Close/Reopen RSVP */}
+                                            {ev.status === 'open' && !rsvpClosed && (
+                                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleCloseRsvp(ev)} data-testid={`close-rsvp-${ev.id}`}>
+                                                    <Lock className="w-4 h-4 mr-1" /> Close RSVP
+                                                </Button>
+                                            )}
+                                            {rsvpClosed && ev.status === 'open' && (
+                                                <Button size="sm" variant="outline" className="text-green-600 border-green-200 hover:bg-green-50" onClick={() => handleReopenRsvp(ev)} data-testid={`reopen-rsvp-${ev.id}`}>
+                                                    <Unlock className="w-3 h-3 mr-1" /> Reopen RSVP
+                                                </Button>
+                                            )}
                                             {ev.status === 'open' && available.length > 0 && (
                                                 <Button size="sm" className="bg-[#0051BA]" onClick={() => handleApproveAll(ev)} disabled={loading} data-testid={`approve-${ev.id}`}>
                                                     Approve Available ({available.length})
@@ -242,6 +293,20 @@ export function AdminRoundRobinTab() {
                                                     <Shuffle className="w-4 h-4 mr-1" />Generate Doubles Schedule
                                                 </Button>
                                             )}
+                                        </div>
+
+                                        {/* Add external player */}
+                                        <div className="flex gap-2 items-center pt-2 border-t border-gray-50">
+                                            <Input
+                                                placeholder="Add non-member player"
+                                                value={extNames[ev.id] || ''}
+                                                onChange={e => setExtNames(prev => ({ ...prev, [ev.id]: e.target.value }))}
+                                                className="h-8 text-sm flex-1"
+                                                data-testid={`ext-name-${ev.id}`}
+                                            />
+                                            <Button size="sm" variant="outline" onClick={() => handleAddExternal(ev)} disabled={!(extNames[ev.id] || '').trim()} data-testid={`add-ext-${ev.id}`}>
+                                                <UserPlus className="w-4 h-4" />
+                                            </Button>
                                         </div>
 
                                         {/* Generated schedule preview */}

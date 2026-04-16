@@ -128,6 +128,11 @@ export const getStats = () => api.get('/stats');
 export const sendAvailabilityReminder = (date) => api.post('/admin/send-availability-reminder', null, { params: { date } });
 export const seedSampleContent = () => api.post('/admin/seed-content');
 export const clearTestData = () => api.post('/admin/clear-test-data');
+export const clearUsers = () => api.post('/admin/clear-users');
+export const clearEvents = () => api.post('/admin/clear-events');
+export const clearMatches = () => api.post('/admin/clear-matches');
+export const clearChat = () => api.post('/admin/clear-chat');
+export const clearContent = () => api.post('/admin/clear-content');
 
 // Weekly Events & Check-In
 export const createWeeklyEvent = (data) => api.post('/weekly-events', data);
@@ -143,5 +148,9 @@ export const adminOverride = (eventId, data) => api.post(`/weekly-events/${event
 export const cancelPlayerSpot = (eventId) => api.post(`/weekly-events/${eventId}/cancel-player`);
 export const generateDoublesSchedule = (eventId, data) => api.post(`/weekly-events/${eventId}/generate-schedule`, data);
 export const getCheckInWindow = (eventId) => api.get(`/weekly-events/${eventId}/checkin-window`);
+export const closeRsvp = (eventId) => api.post(`/weekly-events/${eventId}/close-rsvp`);
+export const reopenRsvp = (eventId) => api.post(`/weekly-events/${eventId}/reopen-rsvp`);
+export const dropOutFromEvent = (eventId) => api.post(`/weekly-events/${eventId}/drop-out`);
+export const addExternalPlayer = (eventId, data) => api.post(`/weekly-events/${eventId}/add-external-player`, data);
 
 export default api;

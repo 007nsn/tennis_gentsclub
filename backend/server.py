@@ -301,6 +301,8 @@ class ClubSettings(BaseModel):
     match_duration_minutes: int = 30
     default_start_time: str = "09:00"
     checkin_timezone: str = "US/Eastern"
+    rsvp_open_day: int = 2  # 0=Mon,1=Tue,2=Wed,3=Thu,4=Fri,5=Sat,6=Sun
+    rsvp_open_hour: int = 7  # Hour in local timezone (0-23)
 
 # ============ WEEKLY CHECK-IN MODELS ============
 
@@ -313,7 +315,7 @@ class WeeklyEventCreate(BaseModel):
 
 class CheckInCreate(BaseModel):
     event_id: str
-    status: str  # "available", "not_available", "maybe"
+    status: str  # "available", "not_available", "maybe", "bench"
 
 class ApprovePlayersRequest(BaseModel):
     event_id: str
@@ -330,6 +332,9 @@ class GenerateDoublesRRRequest(BaseModel):
     num_courts: Optional[int] = None
     start_time: Optional[str] = None
     match_duration_minutes: Optional[int] = None
+
+class AddExternalPlayerRequest(BaseModel):
+    name: str
 
 # ============ AUTH HELPERS ============
 
@@ -809,7 +814,7 @@ async def submit_match(match_data: MatchCreate, user: dict = Depends(get_current
                 "Match Result Pending Approval",
                 f"{user['name']} submitted a match result. Please review and approve/reject.",
                 "Review Match",
-                "https://match-mixer.preview.emergentagent.com/admin"
+                "https://doubles-ladder.preview.emergentagent.com/admin"
             )
         )
     
@@ -859,7 +864,7 @@ async def approve_match(match_id: str, user: dict = Depends(get_admin_user)):
                 "Your Match Result was Approved!",
                 "Your submitted match result has been approved and the ladder has been updated.",
                 "View Ladder",
-                "https://match-mixer.preview.emergentagent.com/solo-ladder"
+                "https://doubles-ladder.preview.emergentagent.com/solo-ladder"
             )
         )
     
@@ -883,7 +888,7 @@ async def reject_match(match_id: str, user: dict = Depends(get_admin_user)):
                 "Match Result Rejected",
                 "Your submitted match result was rejected. Please contact the admin if you have questions.",
                 "Contact Admin",
-                "https://match-mixer.preview.emergentagent.com/messages"
+                "https://doubles-ladder.preview.emergentagent.com/messages"
             )
         )
     
@@ -1009,7 +1014,7 @@ async def send_message(msg_data: MessageCreate, user: dict = Depends(get_current
                     "You have a new message",
                     f"{user['name']} sent you a message: \"{msg_data.content[:100]}...\"",
                     "View Messages",
-                    "https://match-mixer.preview.emergentagent.com/messages"
+                    "https://doubles-ladder.preview.emergentagent.com/messages"
                 )
             )
     
@@ -1366,8 +1371,15 @@ async def get_settings(user: dict = Depends(get_admin_user)):
             "num_courts": 2,
             "default_location": "Local Tennis Club",
             "match_duration_minutes": 30,
-            "default_start_time": "09:00"
+            "default_start_time": "09:00",
+            "rsvp_open_day": 2,
+            "rsvp_open_hour": 7
         }
+    else:
+        if "rsvp_open_day" not in settings:
+            settings["rsvp_open_day"] = 2
+        if "rsvp_open_hour" not in settings:
+            settings["rsvp_open_hour"] = 7
     return settings
 
 @api_router.put("/settings")
@@ -1393,7 +1405,7 @@ async def send_availability_reminder(date: str, admin: dict = Depends(get_admin_
                     "Sunday Tennis - Are You In?",
                     f"Please confirm your availability for the Sunday doubles session on {date}. We need to know who's playing to set up the round robin matches.",
                     "Confirm Availability",
-                    "https://match-mixer.preview.emergentagent.com/availability"
+                    "https://doubles-ladder.preview.emergentagent.com/availability"
                 )
             )
             sent_count += 1
@@ -2103,8 +2115,10 @@ async def create_weekly_event(data: WeeklyEventCreate, admin: dict = Depends(get
         "start_time": data.start_time or settings.get("default_start_time", "09:00"),
         "num_courts": data.num_courts or settings.get("num_courts", 2),
         "status": "open",  # open, approved, scheduled
+        "rsvp_closed": False,
         "approved_players": [],
         "waitlist_players": [],
+        "bench_players": [],
         "generated_schedule": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin["id"]
@@ -2154,12 +2168,14 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    if data.status not in ("available", "not_available", "maybe"):
+    if data.status not in ("available", "not_available", "maybe", "bench"):
         raise HTTPException(status_code=400, detail="Invalid status")
 
-    # Check if Monday 7AM gate has passed (using configured timezone)
+    # Get settings for RSVP open day/time
     settings = await db.settings.find_one({}, {"_id": 0}) or {}
     tz_name = settings.get("checkin_timezone", "US/Eastern")
+    rsvp_open_day = settings.get("rsvp_open_day", 2)  # 0=Mon..6=Sun, default Wed
+    rsvp_open_hour = settings.get("rsvp_open_hour", 7)
     try:
         import zoneinfo
         tz = zoneinfo.ZoneInfo(tz_name)
@@ -2167,10 +2183,27 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
         tz = timezone.utc
     now_local = datetime.now(tz)
     event_date = datetime.strptime(event["event_date"], "%Y-%m-%d").replace(tzinfo=tz)
-    # Monday before the Sunday = Sunday - 6 days
-    mon_open = (event_date - timedelta(days=6)).replace(hour=7, minute=0, second=0, microsecond=0)
-    if now_local < mon_open:
-        raise HTTPException(status_code=400, detail=f"Check-in opens Monday at 7:00 AM ({tz_name})")
+
+    # Calculate RSVP open time: Sunday minus days to reach rsvp_open_day
+    # Sunday is weekday 6. If rsvp_open_day=2 (Wed), that's Sunday - 4 days
+    days_before_sunday = (6 - rsvp_open_day) % 7
+    rsvp_open_dt = (event_date - timedelta(days=days_before_sunday)).replace(
+        hour=rsvp_open_hour, minute=0, second=0, microsecond=0
+    )
+
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    if now_local < rsvp_open_dt:
+        raise HTTPException(
+            status_code=400,
+            detail=f"RSVP opens {day_names[rsvp_open_day]} at {rsvp_open_hour}:00 AM ({tz_name})"
+        )
+
+    # If RSVP is closed, only allow bench or not_available
+    rsvp_closed = event.get("rsvp_closed", False)
+    if rsvp_closed and data.status == "available":
+        raise HTTPException(status_code=400, detail="RSVP is closed. You can join the Bench (waiting list).")
+    if rsvp_closed and data.status == "maybe":
+        raise HTTPException(status_code=400, detail="RSVP is closed. You can join the Bench (waiting list).")
 
     checkin_id = str(uuid.uuid4())
     # Upsert
@@ -2180,7 +2213,6 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
             {"event_id": data.event_id, "user_id": user["id"]},
             {"$set": {"status": data.status, "updated_at": datetime.now(timezone.utc).isoformat()}}
         )
-        return {"message": "Check-in updated", "status": data.status}
     else:
         checkin = {
             "id": checkin_id,
@@ -2192,7 +2224,21 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
         await db.checkins.insert_one(checkin)
-        return {"message": "Check-in submitted", "status": data.status}
+
+    # If status is bench, add to bench_players list on event
+    if data.status == "bench":
+        bench = event.get("bench_players", [])
+        if not any(b.get("id") == user["id"] for b in bench):
+            bench.append({"id": user["id"], "name": user["name"], "added_at": datetime.now(timezone.utc).isoformat()})
+            await db.weekly_events.update_one({"id": data.event_id}, {"$set": {"bench_players": bench}})
+    else:
+        # Remove from bench if changing away from bench
+        bench = event.get("bench_players", [])
+        new_bench = [b for b in bench if b.get("id") != user["id"]]
+        if len(new_bench) != len(bench):
+            await db.weekly_events.update_one({"id": data.event_id}, {"$set": {"bench_players": new_bench}})
+
+    return {"message": "Check-in updated" if existing else "Check-in submitted", "status": data.status}
 
 @api_router.get("/checkins/{event_id}")
 async def get_event_checkins(event_id: str):
@@ -2355,6 +2401,79 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
 
     return {"message": f"Schedule generated: {len(rounds)} rounds", "rounds": rounds}
 
+
+# --- RSVP Close / Drop Out / External Player ---
+
+@api_router.post("/weekly-events/{event_id}/close-rsvp")
+async def close_rsvp(event_id: str, admin: dict = Depends(get_admin_user)):
+    """Admin closes RSVP for an event. Late players can only join the Bench."""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {"rsvp_closed": True}})
+    return {"message": "RSVP closed. Players can now only join the Bench."}
+
+@api_router.post("/weekly-events/{event_id}/reopen-rsvp")
+async def reopen_rsvp(event_id: str, admin: dict = Depends(get_admin_user)):
+    """Admin reopens RSVP for an event."""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {"rsvp_closed": False}})
+    return {"message": "RSVP reopened."}
+
+@api_router.post("/weekly-events/{event_id}/drop-out")
+async def drop_out_player(event_id: str, user: dict = Depends(get_current_user)):
+    """Confirmed available player drops out. Auto-promotes first bench player."""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    approved = event.get("approved_players", [])
+    bench = event.get("bench_players", [])
+
+    was_approved = any(p["id"] == user["id"] for p in approved)
+    approved = [p for p in approved if p["id"] != user["id"]]
+
+    promoted = None
+    if was_approved and bench:
+        promoted = bench.pop(0)
+        approved.append({"id": promoted["id"], "name": promoted["name"]})
+        # Update the promoted player's checkin to available
+        await db.checkins.update_one(
+            {"event_id": event_id, "user_id": promoted["id"]},
+            {"$set": {"status": "available", "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+
+    # Also update checkins for the available players list (for non-approved events)
+    await db.checkins.update_one(
+        {"event_id": event_id, "user_id": user["id"]},
+        {"$set": {"status": "dropped_out", "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {
+        "approved_players": approved,
+        "bench_players": bench,
+    }})
+
+    msg = "You have dropped out."
+    if promoted:
+        msg += f" {promoted['name']} has been promoted from the Bench."
+    return {"message": msg, "promoted": promoted["name"] if promoted else None}
+
+@api_router.post("/weekly-events/{event_id}/add-external-player")
+async def add_external_player(event_id: str, data: AddExternalPlayerRequest, admin: dict = Depends(get_admin_user)):
+    """Admin adds an external (non-member) player by name to the approved list."""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    approved = event.get("approved_players", [])
+    ext_id = f"ext-{str(uuid.uuid4())[:8]}"
+    approved.append({"id": ext_id, "name": data.name, "external": True})
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {"approved_players": approved}})
+    return {"message": f"External player '{data.name}' added to approved list.", "player_id": ext_id}
+
 @api_router.get("/weekly-events/{event_id}/checkin-window")
 async def get_checkin_window(event_id: str):
     """Check if the check-in window is open for an event"""
@@ -2364,6 +2483,8 @@ async def get_checkin_window(event_id: str):
 
     settings = await db.settings.find_one({}, {"_id": 0}) or {}
     tz_name = settings.get("checkin_timezone", "US/Eastern")
+    rsvp_open_day = settings.get("rsvp_open_day", 2)  # 0=Mon..6=Sun, default Wed
+    rsvp_open_hour = settings.get("rsvp_open_hour", 7)
     try:
         import zoneinfo
         tz = zoneinfo.ZoneInfo(tz_name)
@@ -2371,17 +2492,25 @@ async def get_checkin_window(event_id: str):
         tz = timezone.utc
     now_local = datetime.now(tz)
     event_date = datetime.strptime(event["event_date"], "%Y-%m-%d").replace(tzinfo=tz)
-    mon_open = (event_date - timedelta(days=6)).replace(hour=7, minute=0, second=0, microsecond=0)
+    days_before_sunday = (6 - rsvp_open_day) % 7
+    rsvp_open_dt = (event_date - timedelta(days=days_before_sunday)).replace(
+        hour=rsvp_open_hour, minute=0, second=0, microsecond=0
+    )
+
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
     return {
-        "is_open": now_local >= mon_open,
-        "opens_at": mon_open.isoformat(),
+        "is_open": now_local >= rsvp_open_dt,
+        "rsvp_closed": event.get("rsvp_closed", False),
+        "opens_at": rsvp_open_dt.isoformat(),
+        "open_day_name": day_names[rsvp_open_day],
+        "open_hour": rsvp_open_hour,
         "timezone": tz_name,
         "event_status": event.get("status", "open")
     }
 
 
-# ============ ADMIN: CLEAR TEST DATA ============
+# ============ ADMIN: DATA MANAGEMENT ============
 
 @api_router.post("/admin/clear-test-data")
 async def clear_test_data(admin: dict = Depends(get_admin_user)):
@@ -2420,6 +2549,48 @@ async def clear_test_data(admin: dict = Depends(get_admin_user)):
             "articles": del_articles.deleted_count,
         }
     }
+
+@api_router.post("/admin/clear-users")
+async def clear_users(admin: dict = Depends(get_admin_user)):
+    """Delete all users except admin"""
+    admin_id = admin["id"]
+    del_users = await db.users.delete_many({"id": {"$ne": admin_id}})
+    del_solo = await db.solo_players.delete_many({"user_id": {"$ne": admin_id}})
+    return {"message": f"Cleared {del_users.deleted_count} users, {del_solo.deleted_count} solo entries"}
+
+@api_router.post("/admin/clear-events")
+async def clear_events(admin: dict = Depends(get_admin_user)):
+    """Delete all schedules, weekly events, and check-ins"""
+    del_schedules = await db.schedules.delete_many({})
+    del_events = await db.weekly_events.delete_many({})
+    del_checkins = await db.checkins.delete_many({})
+    await db.availability.delete_many({})
+    return {"message": f"Cleared {del_events.deleted_count} events, {del_schedules.deleted_count} schedules, {del_checkins.deleted_count} check-ins"}
+
+@api_router.post("/admin/clear-matches")
+async def clear_matches(admin: dict = Depends(get_admin_user)):
+    """Delete all matches, teams, and solo ladder entries"""
+    del_matches = await db.matches.delete_many({})
+    del_teams = await db.teams.delete_many({})
+    del_solo = await db.solo_players.delete_many({})
+    return {"message": f"Cleared {del_matches.deleted_count} matches, {del_teams.deleted_count} teams, {del_solo.deleted_count} solo entries"}
+
+@api_router.post("/admin/clear-chat")
+async def clear_chat(admin: dict = Depends(get_admin_user)):
+    """Delete all chatroom messages and announcements"""
+    del_chatroom = await db.chatroom.delete_many({})
+    del_announcements = await db.announcements.delete_many({})
+    await db.messages.delete_many({})
+    return {"message": f"Cleared {del_chatroom.deleted_count} messages, {del_announcements.deleted_count} announcements"}
+
+@api_router.post("/admin/clear-content")
+async def clear_content(admin: dict = Depends(get_admin_user)):
+    """Delete all articles, scout reports, and strategy chats"""
+    del_articles = await db.articles.delete_many({})
+    await db.scout_reports.delete_many({})
+    await db.strategy_chats.delete_many({})
+    await db.chat_history.delete_many({})
+    return {"message": f"Cleared {del_articles.deleted_count} articles, scout reports, and strategy chats"}
 
 
 # ============ APP SETUP ============

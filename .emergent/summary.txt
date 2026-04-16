@@ -1,0 +1,153 @@
+<analysis>**original_problem_statement:** Build a website for Sunday doubles tennis buddies with Solo Ladder, Season Standings, chatroom, match history, AI doubles coaching (Opponent Scout & Live Strategy Bot), and a dynamic Weekly Check-In system with an Admin-approved Doubles Round Robin algorithm that handles byes and partner rotations. 
+
+**PRODUCT REQUIREMENTS:**
+- Name: Tennis Buddies Club.
+- Solo Ladder ranking based on total wins.
+- Match History and Season Standings pages.
+- Chatroom for members.
+- Opponent Scout & Live Strategy Bot using Gemini 3 Pro, grounded in a specific user-provided Doubles Strategy Playbook.
+- Weekly Events Check-in: Poll opens Mondays at 7:00 AM (US/Eastern) for the upcoming Sunday match.
+- Admin Panel: Manage users, approve check-ins, auto-generate doubles round-robin schedule (rotating partners, handling byes), manage education content, clear test data.
+- Head-to-Head Records and Best Partnerships stats pages.
+
+**User's preferred language**: English
+(INSTRUCT next agent to respond in English only)
+
+**what currently exists?** 
+A robust, production-ready React + FastAPI + MongoDB application. It features JWT authentication (via httpOnly cookies), a fully functional Weekly Check-In system with doubles round-robin generation, a chatroom, detailed stats pages (Solo Ladder, Season Standings, Head-to-Head, Best Partnerships), and two AI coaching tools powered by Gemini 3 Pro which are specifically tuned to the user's uploaded Doubles Strategy Playbook. The Admin panel allows for full control over users, content, schedule generation, and system maintenance (Clear Test Data). 
+
+**Last working item**: 
+    - Last item agent was working: Changing the Support This Site buttons on the Home page and Footer to link directly to the user's personal Venmo URL.
+    - Status: USER VERIFICATION PENDING
+    - Agent Testing Done: Y
+    - Which testing method agent to use? Screenshot tool
+    - User Testing Done: N
+
+**All Pending/In progress Issue list**: 
+None. The app is in a stable, deployed state and all user requests in the current session have been successfully implemented.
+
+**In progress Task List**: 
+None.
+
+**Upcoming and Future Tasks**
+    Future Tasks:
+    - Tournament brackets (P2)
+    - WebSocket real-time chat (P2)
+    - Mobile app (P2)
+
+**Completed work in this session**
+- Fixed duplicate  bug in Admin.jsx (DONE)
+- Refactored  into smaller subcomponents (DONE)
+- Migrated authentication from localStorage to  cookies for better security (DONE)
+- Integrated user's Google Doc playbook into AI prompts for Strategy Bot & Opponent Scout (DONE)
+- Added Survey content type to Education section and hid UI if empty (DONE)
+- Implemented Weekly Check-In & Doubles Round Robin Scheduler (Monday 7AM poll, admin approval, algorithm with partner rotation and byes) (DONE)
+- Added Clear All Test Data feature for Admins (wipes everything but the admin account) (DONE)
+- Created Head-to-Head records matrix & player comparison UI (DONE)
+- Replaced obsolete Team Ladder with Best Partnerships page based on auto-generated schedules (DONE)
+- Added  number field to user registration and admin view (DONE)
+- Added Support This Site button linking to Venmo (DONE)
+
+**Earlier issues found/mentioned but not fixed**
+   - Issue 1:  Playwright session persistence
+     - Debug checklist: On some iterations, the testing agent has struggled to persist the auth state (cookies) across page navigations in Playwright. Ensure explicit login instructions are passed when invoking the subagent.
+     - Why to solve this issue and what will be achieved with this? Ensures testing subagent correctly navigates authenticated routes.
+     - Should Test frontend/backend/both after fix: Frontend
+     - Is recurring issue? Y
+
+**Known issue recurrence from previous fork**
+  - Issue recurrence in previous fork: None
+  - Recurrence count: 0
+  - Status: NOT STARTED
+
+**Code Architecture**
+- : FastAPI application.  handles DB connection, background tasks, and all endpoints. (Note:  is large).
+- : React application using Tailwind CSS and shadcn/ui components. Context handles Auth ().
+- : Contains split tab components for the Admin dashboard.
+
+**Key Technical Concepts**
+React, FastAPI, MongoDB, JWT Authentication (httpOnly cookies), Emergent integrations library for LLMs, shadcn/ui, Tailwind CSS.
+
+**key DB schema**
+  - users: {id, email, password, name, role, phone, created_at}
+  - weekly_events: {id, event_date, title, location, start_time, num_courts, status, approved_players, waitlist_players, generated_schedule}
+  - checkins: {event_id, user_id, status (available/maybe/not_available)}
+  - solo_players: {user_id, name, wins, losses, points}
+  - matches: {team_a_name, team_b_name, score_a, score_b, match_date}
+  - chatroom: {sender_id, sender_name, content, timestamp}
+  - articles: {title, content, category, content_type, author_id, video_url}
+
+**changes in tech stack**
+  - Migrated from  JWT token handling to , ,  cookies for enhanced security based on code review recommendations. 
+  - Old manual availability system was purged entirely and replaced by the event-driven  system. 
+
+**All files of reference** 
+- : Primary backend routing, models, and scheduling algorithm.
+- : New Weekly Check-in UI and generated schedule display.
+- : New player comparison and matrix page.
+- : Replaced the old .
+- : New custom hook replacing the massive state logic previously in .
+- : , , , , , .
+
+**Areas that need refactoring**: 
+-  is over 2400 lines. The code review heavily requested breaking this down into separate routers (e.g., , , ), though it remains a single file currently to avoid import path complexities unless explicitly addressed.
+
+**key api endpoints**
+- 
+- 
+- 
+- 
+- 
+- 
+- 
+-  (Gemini 3 Pro)
+-  (Gemini 3 Pro)
+
+**Critical Info for New Agent**
+- **Auth Cookies:** Be mindful that auth relies on  cookies now. Do not revert to .
+- **Admin Clean Slate:** The Clear Test Data function resets the app completely (except for the admin user). Do not panic if endpoints return empty arrays—it means the test data was successfully purged.
+- **Removed Features:** Team Ladder and manual Create Team functionalities were completely scrubbed, as the app now relies on dynamic partner pairings via the auto-scheduler.
+
+**documents and test reports created in this job** 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+
+**Last 10 User Messages and any pending HUMAN messages** 
+ - Link Support this Site to https://venmo.com/u/Sergei-Nabatov (Completed)
+ - Button Support this site should open buying credits for this site with my account. Straight to the payment with the suggestion of the amount (Agent explained Emergent limitations and offered Venmo/Stripe) (Completed)
+ - in the main window there button Team Ladder which we agreed to remove (Completed)
+ - players are registered with the email, create a database with the names, emails, phone number. Add phone number cell for signing in if it is not there yet (Completed)
+ - in Admin panel there are Existing Teams and Create a Team with the name of the Team. What is it for? Teams are changed by Round Robin algorithm and in the end it is Singles Ladder (Completed)
+ - Replace Team Ladder with the Best Partnerships page, showing which player pairings have the best win rates together (Completed)
+ - how Team ladder works (Agent explained and suggested alternatives) (Completed)
+ - what is the differens solo Ladder vs season standings (Agent explained) (Completed)
+ - I did it. GLITCH IS RETURNING (Agent identified old availability logic in the Admin tab and replaced it) (Completed)
+ - That glitch under Generate RR Schedule after the Admin choose Sunday, April.19 it still shows me 2 test players and 2 Teams. is still there.please clean it. (Agent instructed user to use Clear All Test Data button on deployed site) (Completed)
+
+**Project Health Check:**
+- Broken: None
+- Mocked: None
+
+**3rd Party Integrations** 
+- Gemini 3 Pro (Opponent Scout, Live Strategy Bot) — uses Emergent LLM Key
+- Resend (Email) — Installed but unused
+- Venmo - Simple URL link applied to Support This Site button
+
+**Testing status**
+  - Testing agent used after significant changes: YES (Multiple iterations performed)
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: , , 
+  - Known regressions: None
+
+**Credentials to test flow:**
+Check  for current test accounts. 
+
+**What agent forgot to execute**
+None.
+
+**Debugging checklist for current issue**
+N/A - Application is in a stable, completed state for current session requirements.</analysis>
