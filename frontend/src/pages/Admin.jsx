@@ -75,12 +75,9 @@ export default function Admin() {
                 <AdminPlayersTab
                     soloPlayers={data.soloPlayers}
                     users={data.users}
-                    teams={data.teams}
                     loading={data.loading}
                     onUpdatePlayer={data.handleUpdatePlayer}
                     onUpdateUser={data.handleUpdateUser}
-                    onCreateTeam={data.handleCreateTeam}
-                    onDeleteTeam={data.handleDeleteTeam}
                 />
 
                 <AdminContentTab
