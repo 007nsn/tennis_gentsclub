@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { useAuth } from '../context/AuthContext';
 import { register } from '../lib/api';
 import { toast } from 'sonner';
-import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Eye, EyeOff, Phone } from 'lucide-react';
 
 export default function Register() {
     const navigate = useNavigate();
@@ -17,6 +17,7 @@ export default function Register() {
     const [formData, setFormData] = useState({
         name: '',
         email: '',
+        phone: '',
         password: ''
     });
 
@@ -78,6 +79,21 @@ export default function Register() {
                                     required
                                     data-testid="register-email-input"
                                 />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="phone">Phone Number</Label>
+                                <div className="relative">
+                                    <Phone className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                    <Input
+                                        id="phone"
+                                        type="tel"
+                                        placeholder="(555) 123-4567"
+                                        value={formData.phone}
+                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                        className="pl-10"
+                                        data-testid="register-phone-input"
+                                    />
+                                </div>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="password">Password</Label>

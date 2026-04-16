@@ -70,6 +70,7 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                                             <div>
                                                 <div className="font-medium">{u.name}</div>
                                                 <div className="text-sm text-gray-500">{u.email}</div>
+                                                {u.phone && <div className="text-sm text-gray-400">{u.phone}</div>}
                                             </div>
                                         )}
                                     </div>

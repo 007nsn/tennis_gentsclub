@@ -50,6 +50,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     name: str
+    phone: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -61,11 +62,13 @@ class UserResponse(BaseModel):
     email: str
     name: str
     role: str
+    phone: Optional[str] = None
     created_at: str
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
+    phone: Optional[str] = None
 
 class TeamCreate(BaseModel):
     name: str
@@ -528,6 +531,7 @@ async def register(user_data: UserCreate):
         "id": user_id,
         "email": user_data.email,
         "name": user_data.name,
+        "phone": user_data.phone or "",
         "password": hash_password(user_data.password),
         "role": role,
         "created_at": datetime.now(timezone.utc).isoformat()
@@ -543,7 +547,7 @@ async def register(user_data: UserCreate):
     await db.solo_players.insert_one(solo_player)
     
     token = create_token(user_id, role)
-    response = JSONResponse(content={"token": token, "user": {"id": user_id, "email": user_data.email, "name": user_data.name, "role": role}})
+    response = JSONResponse(content={"token": token, "user": {"id": user_id, "email": user_data.email, "name": user_data.name, "phone": user_data.phone or "", "role": role}})
     response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="lax", max_age=86400 * 7)
     return response
 
@@ -571,6 +575,7 @@ async def get_me(user: dict = Depends(get_current_user)):
         email=user["email"],
         name=user["name"],
         role=user["role"],
+        phone=user.get("phone", ""),
         created_at=user["created_at"]
     )
 
