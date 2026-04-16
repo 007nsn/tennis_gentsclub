@@ -1984,7 +1984,7 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
     if data.status not in ("available", "not_available", "maybe"):
         raise HTTPException(status_code=400, detail="Invalid status")
 
-    # Check if Wednesday 7AM gate has passed (using configured timezone)
+    # Check if Monday 7AM gate has passed (using configured timezone)
     settings = await db.settings.find_one({}, {"_id": 0}) or {}
     tz_name = settings.get("checkin_timezone", "US/Eastern")
     try:
@@ -1994,10 +1994,10 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
         tz = timezone.utc
     now_local = datetime.now(tz)
     event_date = datetime.strptime(event["event_date"], "%Y-%m-%d").replace(tzinfo=tz)
-    # Wednesday before the Sunday = Sunday - 4 days
-    wed_open = (event_date - timedelta(days=4)).replace(hour=7, minute=0, second=0, microsecond=0)
-    if now_local < wed_open:
-        raise HTTPException(status_code=400, detail=f"Check-in opens Wednesday at 7:00 AM ({tz_name})")
+    # Monday before the Sunday = Sunday - 6 days
+    mon_open = (event_date - timedelta(days=6)).replace(hour=7, minute=0, second=0, microsecond=0)
+    if now_local < mon_open:
+        raise HTTPException(status_code=400, detail=f"Check-in opens Monday at 7:00 AM ({tz_name})")
 
     checkin_id = str(uuid.uuid4())
     # Upsert
@@ -2044,7 +2044,6 @@ async def approve_players(event_id: str, data: ApprovePlayersRequest, admin: dic
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    # Get player names
     approved = []
     for pid in data.approved_player_ids:
         u = await db.users.find_one({"id": pid}, {"_id": 0, "id": 1, "name": 1})
@@ -2078,7 +2077,6 @@ async def admin_override(event_id: str, data: AdminOverrideRequest, admin: dict 
     waitlist = event.get("waitlist_players", [])
     player_entry = {"id": u["id"], "name": u["name"]}
 
-    # Remove from both lists first
     approved = [p for p in approved if p["id"] != data.player_id]
     waitlist = [p for p in waitlist if p["id"] != data.player_id]
 
@@ -2087,7 +2085,7 @@ async def admin_override(event_id: str, data: AdminOverrideRequest, admin: dict 
     elif data.action == "move_to_waitlist":
         waitlist.append(player_entry)
     elif data.action == "remove":
-        pass  # already removed
+        pass
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
 
@@ -2099,7 +2097,7 @@ async def admin_override(event_id: str, data: AdminOverrideRequest, admin: dict 
 
 @api_router.post("/weekly-events/{event_id}/cancel-player")
 async def cancel_player(event_id: str, user: dict = Depends(get_current_user)):
-    """Player cancels their approved spot — auto-promote from waitlist"""
+    """Player cancels their approved spot - auto-promote from waitlist"""
     event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -2110,7 +2108,6 @@ async def cancel_player(event_id: str, user: dict = Depends(get_current_user)):
     was_approved = any(p["id"] == user["id"] for p in approved)
     approved = [p for p in approved if p["id"] != user["id"]]
 
-    # Auto-promote first waitlisted player
     promoted = None
     if was_approved and waitlist:
         promoted = waitlist.pop(0)
@@ -2121,7 +2118,6 @@ async def cancel_player(event_id: str, user: dict = Depends(get_current_user)):
         "waitlist_players": waitlist,
     }})
 
-    # Update check-in status
     await db.checkins.update_one(
         {"event_id": event_id, "user_id": user["id"]},
         {"$set": {"status": "not_available", "updated_at": datetime.now(timezone.utc).isoformat()}}
@@ -2152,7 +2148,6 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
 
     rounds = generate_doubles_round_robin(approved, nc)
 
-    # Assign time slots
     start_hour, start_min = map(int, st.split(":"))
     for r in rounds:
         round_time = datetime.now().replace(hour=start_hour, minute=start_min) + timedelta(minutes=dur * (r["round"] - 1))
@@ -2165,7 +2160,7 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
     }})
 
     # Post to chatroom
-    lines = [f"DOUBLES SCHEDULE — {event['title']}"]
+    lines = [f"DOUBLES SCHEDULE - {event['title']}"]
     for r in rounds:
         lines.append(f"\nRound {r['round']} ({r['time']}):")
         for m in r["matches"]:
@@ -2203,17 +2198,58 @@ async def get_checkin_window(event_id: str):
         tz = timezone.utc
     now_local = datetime.now(tz)
     event_date = datetime.strptime(event["event_date"], "%Y-%m-%d").replace(tzinfo=tz)
-    wed_open = (event_date - timedelta(days=4)).replace(hour=7, minute=0, second=0, microsecond=0)
+    mon_open = (event_date - timedelta(days=6)).replace(hour=7, minute=0, second=0, microsecond=0)
 
     return {
-        "is_open": now_local >= wed_open,
-        "opens_at": wed_open.isoformat(),
+        "is_open": now_local >= mon_open,
+        "opens_at": mon_open.isoformat(),
         "timezone": tz_name,
         "event_status": event.get("status", "open")
     }
 
 
-# Include the router
+# ============ ADMIN: CLEAR TEST DATA ============
+
+@api_router.post("/admin/clear-test-data")
+async def clear_test_data(admin: dict = Depends(get_admin_user)):
+    """Wipe all test data while preserving the admin account"""
+    admin_id = admin["id"]
+    admin_email = admin["email"]
+
+    del_users = await db.users.delete_many({"id": {"$ne": admin_id}})
+    del_solo = await db.solo_players.delete_many({"user_id": {"$ne": admin_id}})
+    del_matches = await db.matches.delete_many({})
+    del_schedules = await db.schedules.delete_many({})
+    del_events = await db.weekly_events.delete_many({})
+    del_checkins = await db.checkins.delete_many({})
+    del_teams = await db.teams.delete_many({})
+    del_chatroom = await db.chatroom.delete_many({})
+    del_announcements = await db.announcements.delete_many({})
+    del_articles = await db.articles.delete_many({})
+    await db.messages.delete_many({})
+    await db.scout_reports.delete_many({})
+    await db.strategy_chats.delete_many({})
+    await db.chat_history.delete_many({})
+
+    return {
+        "message": f"Test data cleared. Preserved admin: {admin_email}",
+        "deleted": {
+            "users": del_users.deleted_count,
+            "solo_players": del_solo.deleted_count,
+            "matches": del_matches.deleted_count,
+            "schedules": del_schedules.deleted_count,
+            "weekly_events": del_events.deleted_count,
+            "checkins": del_checkins.deleted_count,
+            "teams": del_teams.deleted_count,
+            "chatroom": del_chatroom.deleted_count,
+            "announcements": del_announcements.deleted_count,
+            "articles": del_articles.deleted_count,
+        }
+    }
+
+
+# ============ APP SETUP ============
+
 app.include_router(api_router)
 
 app.add_middleware(

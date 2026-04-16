@@ -124,6 +124,7 @@ export const getStats = () => api.get('/stats');
 // Admin actions
 export const sendAvailabilityReminder = (date) => api.post('/admin/send-availability-reminder', null, { params: { date } });
 export const seedSampleContent = () => api.post('/admin/seed-content');
+export const clearTestData = () => api.post('/admin/clear-test-data');
 
 // Weekly Events & Check-In
 export const createWeeklyEvent = (data) => api.post('/weekly-events', data);

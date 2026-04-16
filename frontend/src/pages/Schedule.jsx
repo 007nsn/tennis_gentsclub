@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import {
     Calendar, Clock, MapPin, Users, Check, X, HelpCircle,
     Plus, Loader2, Shield, UserCheck, UserX, ListChecks,
-    Shuffle, Trash2, ChevronDown, ChevronUp
+    Shuffle, Trash2, ChevronDown, ChevronUp, CloudSun
 } from 'lucide-react';
 
 function CheckInButton({ eventId, onUpdate }) {
@@ -58,7 +58,7 @@ function CheckInButton({ eventId, onUpdate }) {
         return (
             <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3" data-testid="checkin-closed">
                 <Clock className="w-4 h-4 inline mr-1" />
-                Check-in opens Wednesday at 7:00 AM ({windowInfo?.timezone || 'US/Eastern'})
+                Check-in opens Monday at 7:00 AM ({windowInfo?.timezone || 'US/Eastern'})
                 {opensAt && <div className="text-xs mt-1">{opensAt.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>}
             </div>
         );
@@ -400,6 +400,27 @@ export default function Schedule() {
                                 modifiers={calendarModifiers}
                                 modifiersStyles={calendarModifierStyles}
                             />
+                        </CardContent>
+                    </Card>
+
+                    {/* Weather Shortcut */}
+                    <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                        <CardContent className="p-4">
+                            <a
+                                href="https://weather.com/weather/today/l/Hawthorne+NY+10532"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-3 group"
+                                data-testid="weather-link"
+                            >
+                                <div className="w-10 h-10 bg-sky-100 rounded-lg flex items-center justify-center group-hover:bg-sky-200 transition-colors">
+                                    <CloudSun className="w-5 h-5 text-sky-600" />
+                                </div>
+                                <div>
+                                    <p className="font-medium text-sm group-hover:text-[#0051BA] transition-colors">Hawthorne, NY Weather</p>
+                                    <p className="text-xs text-gray-500">Check conditions for Sunday</p>
+                                </div>
+                            </a>
                         </CardContent>
                     </Card>
 

@@ -6,8 +6,5 @@
 - Name: Coach Admin
 - Role: admin
 
-## Member Account
-- Email: player@tennis.com
-- Password: player123
-- Name: Demo Player
-- Role: member
+## Note
+All test/dummy users have been cleared via the "Clear Test Data" admin function. Register new members through the app.
