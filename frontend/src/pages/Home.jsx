@@ -5,7 +5,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Calendar, Trophy, Users, BookOpen, ArrowRight, Clock, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getSchedules, getTeams, getAnnouncements, getStats } from '../lib/api';
+import { getSchedules, getAnnouncements, getStats } from '../lib/api';
 
 export default function Home() {
     const { user } = useAuth();
@@ -45,9 +45,9 @@ export default function Home() {
         },
         {
             icon: Trophy,
-            title: 'Team Ladder',
-            description: 'Track team rankings and competitive standings',
-            link: '/team-ladder',
+            title: 'Best Partnerships',
+            description: 'See which doubles pairings dominate the court',
+            link: '/partnerships',
             color: 'bg-[#CCFF00] text-[#002040]'
         },
         {
@@ -233,43 +233,6 @@ export default function Home() {
                                     </CardContent>
                                 </Card>
                             ))}
-                        </div>
-                    </div>
-                </section>
-            )}
-
-            {/* Top Teams Preview */}
-            {teams.length > 0 && (
-                <section className="py-16">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                        <div className="flex items-center justify-between mb-8">
-                            <h2 className="font-['Barlow_Condensed'] text-2xl md:text-3xl font-bold uppercase">
-                                Top Teams
-                            </h2>
-                            <Link to="/team-ladder" className="text-[#0051BA] font-medium flex items-center gap-1 hover:underline">
-                                Full Ladder <ArrowRight className="w-4 h-4" />
-                            </Link>
-                        </div>
-                        <div className="bg-white rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden">
-                            <div className="divide-y divide-gray-100">
-                                {teams.map((team, idx) => (
-                                    <div key={team.id} className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors" data-testid={`top-team-${idx}`}>
-                                        <div className="flex items-center gap-4">
-                                            <div className={`ladder-position ${idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}`}>
-                                                #{idx + 1}
-                                            </div>
-                                            <div>
-                                                <div className="font-bold">{team.name}</div>
-                                                <div className="text-sm text-gray-500">{team.member_names?.join(', ')}</div>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="font-bold text-[#0051BA]">{team.points} pts</div>
-                                            <div className="text-sm text-gray-500">{team.wins}W - {team.losses}L</div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
                         </div>
                     </div>
                 </section>

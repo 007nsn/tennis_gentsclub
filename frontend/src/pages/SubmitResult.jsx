@@ -92,7 +92,7 @@ export default function SubmitResult() {
                 match_date: formData.match_date
             });
             toast.success('Match result submitted! Waiting for admin approval.');
-            navigate(matchType === 'team' ? '/team-ladder' : '/solo-ladder');
+            navigate('/solo-ladder');
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to submit result');
         } finally {
