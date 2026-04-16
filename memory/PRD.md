@@ -3,56 +3,37 @@
 ## Original Problem Statement
 Build a website for Sunday doubles tennis buddies with Team/Solo Ladder, Round Robin scheduling, chatroom communication, educational content, Season Standings, Match Reminders, Opponent Scout (AI), and Live Strategy Bot (AI).
 
-## User Personas
-1. **Club Member**: Views schedules, marks availability, submits match results, chats with other members, views match history, uses AI coach
-2. **Admin/Coach**: Manages Round Robin scheduling, approves matches, creates educational content, edits player stats, sends match reminders
-
 ## Implemented Features
 
-### Core Features (Jan 2026)
-- [x] User authentication (JWT-based with httpOnly cookies, first user = admin)
-- [x] Team Ladder with points system
-- [x] Solo Ladder with wins-only ranking (each win = 1 point)
-- [x] Round Robin schedule management with calendar
+### Core Features
+- [x] User authentication (JWT + httpOnly cookies)
+- [x] Team Ladder, Solo Ladder (wins-only ranking)
 - [x] Match result submission with admin approval
-- [x] Match History Page with player filter
-- [x] Player Stats per player (wins, losses, win rate, recent form)
-- [x] Club Chatroom (group chat for all members)
-- [x] Availability System (players mark available Sundays)
-- [x] Round Robin Tournament Generator with court assignments
-- [x] Admin Panel (edit stats, manage content, club settings)
-- [x] Educational Content (5 sample articles)
-- [x] AI Chatbot (GPT-5.2 via Emergent)
+- [x] Match History with player filter and stats
+- [x] Club Chatroom (group chat)
+- [x] Availability System
+- [x] Admin Panel (6 split sub-components)
+- [x] Educational/Improve page (admin-uploaded content only)
+- [x] AI Chatbot (GPT-5.2), Opponent Scout + Strategy Bot (Gemini 3.1 Pro with user's playbook)
+- [x] Season Standings, Match Reminders
 
-### New Features (Apr 2026)
-- [x] Season Standings - Cumulative stats with podium, streaks, win rates
-- [x] Match Reminders - Admin posts reminders to chatroom from Round Robin tab
-- [x] Opponent Scout - Gemini 3.1 Pro AI analyzes opponent playstyle
-- [x] Live Strategy Bot - Gemini 3.1 Pro AI chat for doubles strategy advice
-- [x] **Doubles Strategy Playbook Integration** - User's "Master Guide for Elite Doubles Tennis Strategy and Analytics" integrated into both AI prompts
-
-### Code Quality Fixes (Apr 2026)
-- [x] httpOnly cookies for auth tokens (dual support: cookie + header)
-- [x] React hook dependencies fixed (useCallback/useMemo across 8+ components)
-- [x] Array index keys replaced with stable identifiers
-- [x] Admin.jsx split into 6 sub-components + useAdminData hook
-- [x] Backend helper extraction (parse_scout_response, calculate_player_season_stats)
-- [x] AuthContext memoized with useMemo
-- [x] Test credentials moved to environment variables
+### Weekly Check-In & Doubles Round Robin (Apr 2026)
+- [x] WeeklyEvent + CheckIn database models
+- [x] Time-gated check-in (opens Wednesday 7AM US/Eastern)
+- [x] Admin approval flow (approved list + waitlist)
+- [x] Auto-promote from waitlist on player cancellation
+- [x] Doubles round robin algorithm (2v2, partner rotation, minimize repeat opponents, fair bye distribution)
+- [x] Generated schedule displays on /schedule page under event card
+- [x] Admin: create events, approve players, override, generate schedule
 
 ## Architecture
 - Frontend: React 19, Tailwind CSS, Shadcn/UI
 - Backend: FastAPI, Motor (async MongoDB)
 - Database: MongoDB
 - AI: OpenAI GPT-5.2 + Gemini 3.1 Pro via Emergent integrations
-- Auth: JWT with httpOnly cookies + Bearer header fallback
 
 ## Prioritized Backlog
-
 ### P1 (Next)
 - Player head-to-head records
-
 ### P2 (Future)
-- Mobile app
-- Tournament brackets
-- Real-time chat (WebSocket)
+- Mobile app, Tournament brackets, Real-time chat (WebSocket)
