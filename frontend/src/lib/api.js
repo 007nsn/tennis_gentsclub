@@ -99,6 +99,7 @@ export const getPlayerStats = (playerId) => api.get(`/player-stats/${playerId}`)
 export const getAllPlayerStats = () => api.get('/player-stats');
 export const getHeadToHead = (playerAId, playerBId) => api.get(`/head-to-head/${playerAId}/${playerBId}`);
 export const getHeadToHeadMatrix = () => api.get('/head-to-head-matrix');
+export const getPartnerships = () => api.get('/partnerships');
 
 // Season Standings
 export const getSeasonStandings = () => api.get('/season-standings');

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
 import { 
     Home, Calendar, Trophy, Users, BookOpen, MessageCircle, 
-    Menu, X, LogOut, User, Settings, ChevronDown, Target, Bot, Award, Swords
+    Menu, X, LogOut, User, Settings, ChevronDown, Target, Bot, Award, Swords, Handshake
 } from 'lucide-react';
 import {
     DropdownMenu,
@@ -20,6 +20,7 @@ const navLinks = [
     { path: '/schedule', label: 'Schedule', icon: Calendar },
     { path: '/season-standings', label: 'Standings', icon: Award },
     { path: '/solo-ladder', label: 'Ladder', icon: Trophy },
+    { path: '/partnerships', label: 'Duos', icon: Handshake },
     { path: '/head-to-head', label: 'H2H', icon: Swords, authRequired: true },
     { path: '/education', label: 'Improve', icon: BookOpen },
     { path: '/opponent-scout', label: 'Scout', icon: Target, authRequired: true },
@@ -213,7 +214,7 @@ export const Layout = ({ children }) => {
                             <h4 className="font-['Barlow_Condensed'] font-bold uppercase tracking-wide mb-4">Quick Links</h4>
                             <ul className="space-y-2 text-gray-400 text-sm">
                                 <li><Link to="/schedule" className="hover:text-white transition-colors">Schedule</Link></li>
-                                <li><Link to="/team-ladder" className="hover:text-white transition-colors">Team Ladder</Link></li>
+                                <li><Link to="/partnerships" className="hover:text-white transition-colors">Best Partnerships</Link></li>
                                 <li><Link to="/education" className="hover:text-white transition-colors">Doubles Tips</Link></li>
                             </ul>
                         </div>

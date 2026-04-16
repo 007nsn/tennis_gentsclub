@@ -9,7 +9,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Schedule from "./pages/Schedule";
-import TeamLadder from "./pages/TeamLadder";
+import BestPartnerships from "./pages/TeamLadder";
 import SoloLadder from "./pages/SoloLadder";
 import SeasonStandings from "./pages/SeasonStandings";
 import MatchHistory from "./pages/MatchHistory";
@@ -34,7 +34,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/schedule" element={<Schedule />} />
-            <Route path="/team-ladder" element={<TeamLadder />} />
+            <Route path="/partnerships" element={<BestPartnerships />} />
             <Route path="/solo-ladder" element={<SoloLadder />} />
             <Route path="/season-standings" element={<SeasonStandings />} />
             <Route path="/match-history" element={<MatchHistory />} />

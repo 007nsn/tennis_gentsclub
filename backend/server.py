@@ -1232,6 +1232,95 @@ async def get_head_to_head_matrix():
 
     return {"players": player_list, "matrix": matrix}
 
+# ============ BEST PARTNERSHIPS ============
+
+@api_router.get("/partnerships")
+async def get_best_partnerships():
+    """Analyze all generated doubles schedules to find best player pairings"""
+    # Get all events with generated schedules
+    events = await db.weekly_events.find(
+        {"generated_schedule": {"$ne": None}}, {"_id": 0}
+    ).to_list(500)
+
+    # Track partnership stats: (sorted pair) -> {matches_together, wins, losses}
+    pair_stats = {}
+    # Build a player name lookup
+    all_players = await db.solo_players.find({}, {"_id": 0}).to_list(200)
+    name_map = {p["id"]: p["name"] for p in all_players}
+
+    for event in events:
+        schedule = event.get("generated_schedule", [])
+        for rnd in schedule:
+            for match in rnd.get("matches", []):
+                team_a_ids = [p["id"] for p in match.get("team_a", [])]
+                team_b_ids = [p["id"] for p in match.get("team_b", [])]
+
+                # Register partnerships
+                if len(team_a_ids) == 2:
+                    pair_key_a = tuple(sorted(team_a_ids))
+                    if pair_key_a not in pair_stats:
+                        pair_stats[pair_key_a] = {"together": 0, "wins": 0, "losses": 0}
+                    pair_stats[pair_key_a]["together"] += 1
+
+                if len(team_b_ids) == 2:
+                    pair_key_b = tuple(sorted(team_b_ids))
+                    if pair_key_b not in pair_stats:
+                        pair_stats[pair_key_b] = {"together": 0, "wins": 0, "losses": 0}
+                    pair_stats[pair_key_b]["together"] += 1
+
+    # Also mine approved solo matches for doubles context
+    # Check match results stored with team references
+    team_matches = await db.matches.find(
+        {"status": "approved", "match_type": "team"}, {"_id": 0}
+    ).to_list(1000)
+
+    for m in team_matches:
+        if m.get("team_a_id") and m.get("team_b_id"):
+            team_a = await db.teams.find_one({"id": m["team_a_id"]}, {"_id": 0})
+            team_b = await db.teams.find_one({"id": m["team_b_id"]}, {"_id": 0})
+            if team_a and team_b:
+                a_members = team_a.get("member_ids", [])
+                b_members = team_b.get("member_ids", [])
+                a_won = m.get("score_a", 0) > m.get("score_b", 0)
+
+                if len(a_members) == 2:
+                    pk = tuple(sorted(a_members))
+                    if pk not in pair_stats:
+                        pair_stats[pk] = {"together": 0, "wins": 0, "losses": 0}
+                    pair_stats[pk]["together"] += 1
+                    if a_won:
+                        pair_stats[pk]["wins"] += 1
+                    else:
+                        pair_stats[pk]["losses"] += 1
+
+                if len(b_members) == 2:
+                    pk = tuple(sorted(b_members))
+                    if pk not in pair_stats:
+                        pair_stats[pk] = {"together": 0, "wins": 0, "losses": 0}
+                    pair_stats[pk]["together"] += 1
+                    if not a_won:
+                        pair_stats[pk]["wins"] += 1
+                    else:
+                        pair_stats[pk]["losses"] += 1
+
+    # Build response
+    partnerships = []
+    for (p1, p2), stats in pair_stats.items():
+        total = stats["wins"] + stats["losses"]
+        win_rate = round((stats["wins"] / total * 100), 1) if total > 0 else 0
+        partnerships.append({
+            "player_a": {"id": p1, "name": name_map.get(p1, "Unknown")},
+            "player_b": {"id": p2, "name": name_map.get(p2, "Unknown")},
+            "matches_together": stats["together"],
+            "wins": stats["wins"],
+            "losses": stats["losses"],
+            "win_rate": win_rate,
+        })
+
+    # Sort by matches together desc, then win_rate desc
+    partnerships.sort(key=lambda x: (x["matches_together"], x["win_rate"]), reverse=True)
+    return partnerships
+
 # ============ ANNOUNCEMENTS ROUTES ============
 
 @api_router.post("/announcements", response_model=AnnouncementResponse)
@@ -2302,7 +2391,7 @@ async def clear_test_data(admin: dict = Depends(get_admin_user)):
     del_events = await db.weekly_events.delete_many({})
     del_checkins = await db.checkins.delete_many({})
     del_teams = await db.teams.delete_many({})
-    del_availability = await db.availability.delete_many({})
+    await db.availability.delete_many({})
     del_chatroom = await db.chatroom.delete_many({})
     del_announcements = await db.announcements.delete_many({})
     del_articles = await db.articles.delete_many({})
