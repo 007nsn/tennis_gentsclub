@@ -10,20 +10,17 @@ import { getSchedules, getAnnouncements, getStats } from '../lib/api';
 export default function Home() {
     const { user } = useAuth();
     const [schedules, setSchedules] = useState([]);
-    const [teams, setTeams] = useState([]);
     const [announcements, setAnnouncements] = useState([]);
     const [stats, setStats] = useState({ total_members: 0, total_teams: 0, total_matches: 0 });
 
     const loadData = useCallback(async () => {
         try {
-            const [schedulesRes, teamsRes, announcementsRes, statsRes] = await Promise.all([
+            const [schedulesRes, announcementsRes, statsRes] = await Promise.all([
                 getSchedules(),
-                getTeams(),
                 getAnnouncements(),
                 getStats()
             ]);
             setSchedules(schedulesRes.data.slice(0, 3));
-            setTeams(teamsRes.data.slice(0, 5));
             setAnnouncements(announcementsRes.data.slice(0, 2));
             setStats(statsRes.data);
         } catch (error) {
