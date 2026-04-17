@@ -1064,8 +1064,19 @@ async def upload_file(file: UploadFile = File(...), user: dict = Depends(get_adm
     }
 
 @api_router.get("/files/{path:path}")
-async def serve_file(path: str):
-    """Serve a file from object storage"""
+async def serve_file(path: str, request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """Serve a file from object storage - requires login"""
+    token = None
+    if credentials:
+        token = credentials.credentials
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Login required to download files")
+    try:
+        jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Login required to download files")
     try:
         data, content_type = get_object(path)
         return Response(content=data, media_type=content_type)
