@@ -1,5 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, UploadFile, File
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -16,6 +16,7 @@ import jwt
 import bcrypt
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 import resend
+import requests as http_requests
 from itertools import combinations
 
 ROOT_DIR = Path(__file__).parent
@@ -35,6 +36,40 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://doubles-ladder.preview.em
 # Initialize Resend
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
+
+# ============ OBJECT STORAGE ============
+
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+APP_NAME = "tennis-buddies"
+storage_key = None
+
+def init_storage():
+    global storage_key
+    if storage_key:
+        return storage_key
+    resp = http_requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_LLM_KEY}, timeout=30)
+    resp.raise_for_status()
+    storage_key = resp.json()["storage_key"]
+    return storage_key
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = http_requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def get_object(path: str):
+    key = init_storage()
+    resp = http_requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key}, timeout=60
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 # Create the main app
 app = FastAPI()
@@ -153,6 +188,9 @@ class ArticleCreate(BaseModel):
     content_type: str = "article"  # article, video, infographic
     video_url: Optional[str] = None
     image_url: Optional[str] = None
+    file_path: Optional[str] = None
+    file_name: Optional[str] = None
+    file_content_type: Optional[str] = None
 
 class ArticleResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -163,6 +201,9 @@ class ArticleResponse(BaseModel):
     content_type: str = "article"
     video_url: Optional[str] = None
     image_url: Optional[str] = None
+    file_path: Optional[str] = None
+    file_name: Optional[str] = None
+    file_content_type: Optional[str] = None
     author_id: str
     author_name: str
     created_at: str
@@ -174,6 +215,9 @@ class ArticleUpdate(BaseModel):
     content_type: Optional[str] = None
     video_url: Optional[str] = None
     image_url: Optional[str] = None
+    file_path: Optional[str] = None
+    file_name: Optional[str] = None
+    file_content_type: Optional[str] = None
 
 class ChatMessageCreate(BaseModel):
     message: str
@@ -944,6 +988,9 @@ async def create_article(article_data: ArticleCreate, user: dict = Depends(get_a
         "content_type": article_data.content_type,
         "video_url": article_data.video_url,
         "image_url": article_data.image_url,
+        "file_path": article_data.file_path,
+        "file_name": article_data.file_name,
+        "file_content_type": article_data.file_content_type,
         "author_id": user["id"],
         "author_name": user["name"],
         "created_at": datetime.now(timezone.utc).isoformat()
@@ -985,6 +1032,46 @@ async def delete_article(article_id: str, user: dict = Depends(get_admin_user)):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Article not found")
     return {"message": "Article deleted"}
+
+# ============ FILE UPLOAD & SERVE ============
+
+ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "ppt", "pptx", "txt", "png", "jpg", "jpeg", "gif", "webp"}
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
+@api_router.post("/upload")
+async def upload_file(file: UploadFile = File(...), user: dict = Depends(get_admin_user)):
+    """Upload a file to object storage"""
+    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type .{ext} not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+
+    data = await file.read()
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large (max 50MB)")
+
+    path = f"{APP_NAME}/uploads/{user['id']}/{uuid.uuid4()}.{ext}"
+    try:
+        result = put_object(path, data, file.content_type or "application/octet-stream")
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(status_code=500, detail="File upload failed")
+
+    return {
+        "path": result["path"],
+        "original_filename": file.filename,
+        "content_type": file.content_type,
+        "size": result.get("size", len(data))
+    }
+
+@api_router.get("/files/{path:path}")
+async def serve_file(path: str):
+    """Serve a file from object storage"""
+    try:
+        data, content_type = get_object(path)
+        return Response(content=data, media_type=content_type)
+    except Exception as e:
+        logger.error(f"File serve failed: {e}")
+        raise HTTPException(status_code=404, detail="File not found")
 
 # ============ MESSAGES (Player to Admin) ============
 
@@ -2649,6 +2736,13 @@ async def seed_admin():
             logger.info("Admin account password refreshed")
     except Exception as e:
         logger.error(f"Admin seed error: {e}")
+
+    # Init object storage
+    try:
+        init_storage()
+        logger.info("Object storage initialized")
+    except Exception as e:
+        logger.error(f"Storage init failed (non-fatal): {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

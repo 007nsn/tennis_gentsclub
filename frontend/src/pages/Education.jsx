@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { BookOpen, Play, Dumbbell, Target, Package, ArrowRight } from 'lucide-react';
+import { BookOpen, Play, Dumbbell, Target, Package, ArrowRight, FileText, File as FileIcon } from 'lucide-react';
 import { getArticles } from '../lib/api';
 
 const categories = [
@@ -162,6 +162,15 @@ export default function Education() {
                                             alt={article.title}
                                             className="w-full h-full object-cover"
                                         />
+                                    ) : article.file_name ? (
+                                        <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center justify-center">
+                                            {article.file_name.toLowerCase().endsWith('.pdf') ? (
+                                                <FileText className="w-12 h-12 text-red-400 mb-2" />
+                                            ) : (
+                                                <FileIcon className="w-12 h-12 text-blue-400 mb-2" />
+                                            )}
+                                            <span className="text-xs text-gray-500 px-4 text-center truncate max-w-full">{article.file_name}</span>
+                                        </div>
                                     ) : (
                                         <div className="w-full h-full bg-gradient-to-br from-[#0051BA] to-[#003E94] flex items-center justify-center">
                                             <BookOpen className="w-12 h-12 text-white/50" />

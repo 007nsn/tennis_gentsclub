@@ -1,24 +1,88 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { TabsContent } from '../../components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { BookOpen, Plus, Trash2, Video, FileText, Image, ClipboardList } from 'lucide-react';
+import { BookOpen, Plus, Trash2, Video, FileText, Image, ClipboardList, Upload, Loader2, File, X } from 'lucide-react';
+import { uploadFile } from '../../lib/api';
+import { toast } from 'sonner';
 
 export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteArticle, onSeedContent }) {
-    const [articleForm, setArticleForm] = useState({ title: '', content: '', category: 'technique', content_type: 'article', video_url: '', image_url: '' });
+    const [articleForm, setArticleForm] = useState({
+        title: '', content: '', category: 'technique', content_type: 'article',
+        video_url: '', image_url: '', file_path: '', file_name: '', file_content_type: ''
+    });
+    const [uploading, setUploading] = useState(false);
+    const [uploadedFile, setUploadedFile] = useState(null);
+    const fileInputRef = useRef(null);
+
+    const handleFileUpload = async (file) => {
+        if (!file) return;
+        const allowed = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'webp'];
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (!allowed.includes(ext)) {
+            toast.error(`File type .${ext} not supported. Use: ${allowed.join(', ')}`);
+            return;
+        }
+        if (file.size > 50 * 1024 * 1024) {
+            toast.error('File too large (max 50MB)');
+            return;
+        }
+        setUploading(true);
+        try {
+            const res = await uploadFile(file);
+            const data = res.data;
+            setUploadedFile({ name: file.name, path: data.path, type: file.type });
+            setArticleForm(prev => ({
+                ...prev,
+                file_path: data.path,
+                file_name: file.name,
+                file_content_type: file.type
+            }));
+            toast.success(`Uploaded: ${file.name}`);
+        } catch (err) {
+            toast.error(err.response?.data?.detail || 'Upload failed');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files[0];
+        if (file) handleFileUpload(file);
+    };
+
+    const clearFile = () => {
+        setUploadedFile(null);
+        setArticleForm(prev => ({ ...prev, file_path: '', file_name: '', file_content_type: '' }));
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
 
     const handleCreateArticle = async (e) => {
         e.preventDefault();
-        if (!articleForm.title || !articleForm.content || !articleForm.category) {
-            return;
-        }
+        if (!articleForm.title || !articleForm.content || !articleForm.category) return;
         const success = await onCreateArticle(articleForm);
         if (success) {
-            setArticleForm({ title: '', content: '', category: 'technique', content_type: 'article', video_url: '', image_url: '' });
+            setArticleForm({
+                title: '', content: '', category: 'technique', content_type: 'article',
+                video_url: '', image_url: '', file_path: '', file_name: '', file_content_type: ''
+            });
+            setUploadedFile(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
+    };
+
+    const getFileIcon = (name) => {
+        if (!name) return File;
+        const ext = name.split('.').pop().toLowerCase();
+        if (ext === 'pdf') return FileText;
+        if (['doc', 'docx'].includes(ext)) return FileText;
+        if (['ppt', 'pptx'].includes(ext)) return FileText;
+        if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return Image;
+        return File;
     };
 
     return (
@@ -27,7 +91,7 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                     <CardHeader>
                         <CardTitle>Add Educational Content</CardTitle>
-                        <CardDescription>Create articles, videos, or infographics</CardDescription>
+                        <CardDescription>Upload articles, videos, PDFs, or presentations</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleCreateArticle} className="space-y-4">
@@ -49,17 +113,56 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                                         <SelectItem value="video"><Video className="w-4 h-4 inline mr-2" />Video</SelectItem>
                                         <SelectItem value="infographic"><Image className="w-4 h-4 inline mr-2" />Infographic</SelectItem>
                                         <SelectItem value="survey"><ClipboardList className="w-4 h-4 inline mr-2" />Survey</SelectItem>
+                                        <SelectItem value="document"><File className="w-4 h-4 inline mr-2" />Document</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
-                            <Textarea value={articleForm.content} onChange={(e) => setArticleForm({ ...articleForm, content: e.target.value })} placeholder="Content..." className="min-h-32" data-testid="article-content-input" />
-                            <Input value={articleForm.video_url} onChange={(e) => setArticleForm({ ...articleForm, video_url: e.target.value })} placeholder="YouTube URL (optional)" />
-                            <Input value={articleForm.image_url} onChange={(e) => setArticleForm({ ...articleForm, image_url: e.target.value })} placeholder="Image URL (optional)" />
-                            <Button type="submit" className="w-full btn-primary" disabled={loading} data-testid="create-article-btn"><Plus className="w-4 h-4 mr-2" />Add Content</Button>
+                            <Textarea value={articleForm.content} onChange={(e) => setArticleForm({ ...articleForm, content: e.target.value })} placeholder="Description or content..." className="min-h-24" data-testid="article-content-input" />
+                            <Input value={articleForm.video_url} onChange={(e) => setArticleForm({ ...articleForm, video_url: e.target.value })} placeholder="YouTube URL (optional)" data-testid="video-url-input" />
+
+                            {/* File Upload Area */}
+                            <div
+                                className="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center hover:border-[#0051BA] transition-colors cursor-pointer"
+                                onDrop={handleDrop}
+                                onDragOver={(e) => e.preventDefault()}
+                                onClick={() => !uploading && fileInputRef.current?.click()}
+                                data-testid="file-upload-area"
+                            >
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    className="hidden"
+                                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.gif,.webp"
+                                    onChange={(e) => handleFileUpload(e.target.files[0])}
+                                />
+                                {uploading ? (
+                                    <div className="flex items-center justify-center gap-2 py-2">
+                                        <Loader2 className="w-5 h-5 animate-spin text-[#0051BA]" />
+                                        <span className="text-sm text-gray-500">Uploading...</span>
+                                    </div>
+                                ) : uploadedFile ? (
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            {(() => { const Icon = getFileIcon(uploadedFile.name); return <Icon className="w-5 h-5 text-[#0051BA]" />; })()}
+                                            <span className="text-sm font-medium">{uploadedFile.name}</span>
+                                        </div>
+                                        <button type="button" onClick={(e) => { e.stopPropagation(); clearFile(); }} className="text-gray-400 hover:text-red-500">
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="py-2">
+                                        <Upload className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                                        <p className="text-sm text-gray-500">Drag & drop or click to upload</p>
+                                        <p className="text-xs text-gray-400 mt-1">PDF, DOCX, PPTX, images (max 50MB)</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <Button type="submit" className="w-full btn-primary" disabled={loading || uploading} data-testid="create-article-btn">
+                                <Plus className="w-4 h-4 mr-2" />Add Content
+                            </Button>
                         </form>
-                        <div className="mt-4 pt-4 border-t">
-                            <p className="text-xs text-gray-500 text-center">Upload articles, videos, infographics, or surveys for your club members to access under "Improve".</p>
-                        </div>
                     </CardContent>
                 </Card>
 
@@ -74,9 +177,13 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                                         {article.content_type === 'infographic' && <Image className="w-5 h-5 text-purple-500" />}
                                         {article.content_type === 'article' && <FileText className="w-5 h-5 text-blue-500" />}
                                         {article.content_type === 'survey' && <ClipboardList className="w-5 h-5 text-green-500" />}
+                                        {article.content_type === 'document' && <File className="w-5 h-5 text-orange-500" />}
                                         <div>
-                                            <div className="font-medium">{article.title}</div>
-                                            <div className="text-sm text-gray-500">{article.category}</div>
+                                            <div className="font-medium text-sm">{article.title}</div>
+                                            <div className="text-xs text-gray-500">
+                                                {article.category}
+                                                {article.file_name && <span className="ml-2 text-[#0051BA]">{article.file_name}</span>}
+                                            </div>
                                         </div>
                                     </div>
                                     <Button size="sm" variant="ghost" className="text-red-500" onClick={() => onDeleteArticle(article.id)}>

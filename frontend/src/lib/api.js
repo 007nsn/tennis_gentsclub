@@ -69,6 +69,14 @@ export const getArticle = (id) => api.get(`/articles/${id}`);
 export const updateArticle = (id, data) => api.put(`/articles/${id}`, data);
 export const deleteArticle = (id) => api.delete(`/articles/${id}`);
 
+// File Upload
+export const uploadFile = (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
+export const getFileUrl = (path) => `${API_URL}/files/${path}`;
+
 // Announcements
 export const createAnnouncement = (data) => api.post('/announcements', data);
 export const getAnnouncements = () => api.get('/announcements');

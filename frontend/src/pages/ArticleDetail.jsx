@@ -3,8 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { ArrowLeft, User, Calendar, Play } from 'lucide-react';
-import { getArticle } from '../lib/api';
+import { ArrowLeft, User, Calendar, Play, Download, FileText, File } from 'lucide-react';
+import { getArticle, getFileUrl } from '../lib/api';
 
 const categoryColors = {
     technique: 'bg-blue-100 text-blue-800',
@@ -41,6 +41,9 @@ export default function ArticleDetail() {
         return match ? `https://www.youtube.com/embed/${match[1]}` : null;
     };
 
+    const isPdf = (name) => name?.toLowerCase().endsWith('.pdf');
+    const isImage = (name) => /\.(png|jpg|jpeg|gif|webp)$/i.test(name || '');
+
     if (loading) {
         return (
             <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -52,6 +55,7 @@ export default function ArticleDetail() {
     if (!article) return null;
 
     const embedUrl = getYouTubeEmbedUrl(article.video_url);
+    const fileUrl = article.file_path ? getFileUrl(article.file_path) : null;
 
     return (
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8" data-testid="article-detail-page">
@@ -108,6 +112,56 @@ export default function ArticleDetail() {
                         alt={article.title}
                         className="w-full h-auto"
                     />
+                </Card>
+            )}
+
+            {/* Attached File - PDF Preview */}
+            {fileUrl && isPdf(article.file_name) && (
+                <Card className="border-none shadow-[0_4px_12px_rgba(0,0,0,0.08)] mb-8 overflow-hidden" data-testid="pdf-preview">
+                    <div className="aspect-[4/3]">
+                        <iframe
+                            src={fileUrl}
+                            title={article.file_name}
+                            className="w-full h-full"
+                        />
+                    </div>
+                </Card>
+            )}
+
+            {/* Attached File - Image Preview */}
+            {fileUrl && isImage(article.file_name) && (
+                <Card className="border-none shadow-[0_4px_12px_rgba(0,0,0,0.08)] mb-8 overflow-hidden" data-testid="image-preview">
+                    <img src={fileUrl} alt={article.file_name} className="w-full h-auto" />
+                </Card>
+            )}
+
+            {/* Download Button for any attached file */}
+            {fileUrl && (
+                <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] mb-8" data-testid="file-download">
+                    <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                {isPdf(article.file_name) ? (
+                                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                                        <FileText className="w-5 h-5 text-red-600" />
+                                    </div>
+                                ) : (
+                                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                        <File className="w-5 h-5 text-blue-600" />
+                                    </div>
+                                )}
+                                <div>
+                                    <p className="font-medium text-sm">{article.file_name}</p>
+                                    <p className="text-xs text-gray-500">{article.file_content_type || 'Document'}</p>
+                                </div>
+                            </div>
+                            <a href={fileUrl} download={article.file_name} target="_blank" rel="noopener noreferrer">
+                                <Button size="sm" className="bg-[#0051BA]" data-testid="download-btn">
+                                    <Download className="w-4 h-4 mr-1" /> Download
+                                </Button>
+                            </a>
+                        </div>
+                    </CardContent>
                 </Card>
             )}
 
