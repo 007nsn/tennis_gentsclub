@@ -30,10 +30,12 @@ next-env.d.ts
 dist/
 dist
 
-# Environment files (comprehensive coverage)
-
+# Credential files (NOT .env - those are needed for deployment)
 *token.json*
 *credentials.json*
+*.pem
+*.key
+.credentials
 
 # Logs and debug files
 npm-debug.log*
@@ -44,7 +46,6 @@ dump.rdb
 
 # System files
 .DS_Store
-*.pem
 
 # Python
 __pycache__/
@@ -77,113 +78,4 @@ agenthub/agents/youtube/db
 .cache/
 
 # Mobile development
-android-sdk/ frontend/node_modules/.cache/default-development/4.pack
-frontend/node_modules/.cache/default-development/4.pack
-frontend/node_modules/.cache/default-development/0.pack
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
-frontend/node_modules/.cache/default-development/1.pack
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
-frontend/node_modules/.cache/default-development/3.pack
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
+android-sdk/
