@@ -15,6 +15,9 @@ import {
 } from '../../lib/api';
 import { toast } from 'sonner';
 
+const getConfirmed = (ev) => ev.confirmed_players || ev.approved_players || [];
+const getBench = (ev) => ev.bench_players || ev.waitlist_players || [];
+
 export function AdminRoundRobinTab() {
     const [events, setEvents] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -171,8 +174,8 @@ export function AdminRoundRobinTab() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {events.map(ev => {
-                                const confirmed = ev.confirmed_players || [];
-                                const bench = ev.bench_players || [];
+                                const confirmed = getConfirmed(ev);
+                                const bench = getBench(ev);
                                 const maybe = (ev.checkins || []).filter(c => c.status === 'maybe');
                                 const maxPlayers = (ev.num_courts || 2) * 4;
                                 const rsvpClosed = ev.rsvp_closed;

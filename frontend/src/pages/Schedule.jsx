@@ -23,6 +23,10 @@ import {
     Lock, Unlock, LogOut, UserPlus, Armchair, Edit3, Save
 } from 'lucide-react';
 
+// Backward-compatible: old events use approved_players, new use confirmed_players
+const getConfirmed = (event) => event.confirmed_players || event.approved_players || [];
+const getBench = (event) => event.bench_players || event.waitlist_players || [];
+
 function CheckInButton({ eventId, event, onUpdate }) {
     const { user } = useAuth();
     const [myStatus, setMyStatus] = useState(null);
@@ -60,7 +64,7 @@ function CheckInButton({ eventId, event, onUpdate }) {
     const openHour = windowInfo?.open_hour ?? 7;
     const rsvpClosed = windowInfo?.rsvp_closed;
     const maxPlayers = (event?.num_courts || 2) * 4;
-    const confirmedCount = event?.confirmed_players?.length || 0;
+    const confirmedCount = getConfirmed(event || {}).length;
     const spotsLeft = Math.max(0, maxPlayers - confirmedCount);
 
     if (!windowOpen) {
@@ -125,8 +129,8 @@ function CheckInButton({ eventId, event, onUpdate }) {
 
 function PlayersList({ event, onUpdate }) {
     const { user } = useAuth();
-    const confirmed = event.confirmed_players || [];
-    const bench = event.bench_players || [];
+    const confirmed = getConfirmed(event);
+    const bench = getBench(event);
     const maxPlayers = (event.num_courts || 2) * 4;
     const [dropping, setDropping] = useState(false);
 
@@ -188,8 +192,8 @@ function EditableScheduleDisplay({ event, onRefresh, isAdmin }) {
     const [editing, setEditing] = useState(false);
     const [editedSchedule, setEditedSchedule] = useState(null);
     const [saving, setSaving] = useState(false);
-    const bench = event.bench_players || [];
-    const confirmed = event.confirmed_players || [];
+    const bench = getBench(event);
+    const confirmed = getConfirmed(event);
     const allPlayers = [...confirmed, ...bench];
 
     if (!schedule || schedule.length === 0) return null;
@@ -318,8 +322,8 @@ function AdminEventPanel({ event, onRefresh }) {
     useEffect(() => { loadCheckins(); }, [loadCheckins]);
 
     const maybe = checkins.filter(c => c.status === 'maybe');
-    const confirmed = event.confirmed_players || [];
-    const bench = event.bench_players || [];
+    const confirmed = getConfirmed(event);
+    const bench = getBench(event);
     const maxPlayers = (event.num_courts || 2) * 4;
     const rsvpClosed = event.rsvp_closed;
 
@@ -609,7 +613,7 @@ export default function Schedule() {
                                                 <div className="md:w-56 shrink-0">
                                                     {user && !isAdmin && event.status !== 'scheduled' ? (
                                                         <CheckInButton eventId={event.id} event={event} onUpdate={refreshEvents} />
-                                                    ) : event.status === 'scheduled' && user && !isAdmin && event.confirmed_players?.some(p => p.id === user.id) ? (
+                                                    ) : event.status === 'scheduled' && user && !isAdmin && (getConfirmed(event))?.some(p => p.id === user.id) ? (
                                                         <div>
                                                             <Badge className="bg-green-100 text-green-800 mb-2">You're playing!</Badge>
                                                             <Button size="sm" variant="outline" className="text-red-500 w-full" onClick={async () => { await cancelPlayerSpot(event.id); refreshEvents(); }} data-testid="cancel-spot-btn">

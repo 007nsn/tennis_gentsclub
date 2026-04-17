@@ -2301,7 +2301,7 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
     rsvp_closed = event.get("rsvp_closed", False)
     now_ts = datetime.now(timezone.utc).isoformat()
     max_players = event.get("num_courts", 2) * 4
-    confirmed = event.get("confirmed_players", [])
+    confirmed = event.get("confirmed_players") or event.get("approved_players") or []
     bench = event.get("bench_players", [])
 
     # Determine final status
@@ -2434,7 +2434,7 @@ async def admin_override(event_id: str, data: AdminOverrideRequest, admin: dict 
     if not u:
         raise HTTPException(status_code=404, detail="Player not found")
 
-    confirmed = event.get("confirmed_players", [])
+    confirmed = event.get("confirmed_players") or event.get("approved_players") or []
     bench = event.get("bench_players", [])
     player_entry = {"id": u["id"], "name": u["name"], "timestamp": datetime.now(timezone.utc).isoformat()}
 
@@ -2463,7 +2463,7 @@ async def cancel_player(event_id: str, user: dict = Depends(get_current_user)):
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    confirmed = event.get("confirmed_players", [])
+    confirmed = event.get("confirmed_players") or event.get("approved_players") or []
     bench = event.get("bench_players", [])
 
     was_confirmed = any(p["id"] == user["id"] for p in confirmed)
@@ -2499,7 +2499,7 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    confirmed = event.get("confirmed_players", [])
+    confirmed = event.get("confirmed_players") or event.get("approved_players") or []
     if len(confirmed) < 4:
         raise HTTPException(status_code=400, detail=f"Need at least 4 confirmed players (have {len(confirmed)})")
 
@@ -2576,7 +2576,7 @@ async def swap_player_in_schedule(event_id: str, round_idx: int = Query(...), ma
 
     # Find new player info
     bench = event.get("bench_players", [])
-    confirmed = event.get("confirmed_players", [])
+    confirmed = event.get("confirmed_players") or event.get("approved_players") or []
     new_player = None
     # Check bench first
     for b in bench:
@@ -2638,7 +2638,7 @@ async def drop_out_player(event_id: str, user: dict = Depends(get_current_user))
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    confirmed = event.get("confirmed_players", [])
+    confirmed = event.get("confirmed_players") or event.get("approved_players") or []
     bench = event.get("bench_players", [])
 
     was_confirmed = any(p["id"] == user["id"] for p in confirmed)
@@ -2678,7 +2678,7 @@ async def add_external_player(event_id: str, data: AddExternalPlayerRequest, adm
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    confirmed = event.get("confirmed_players", [])
+    confirmed = event.get("confirmed_players") or event.get("approved_players") or []
     ext_id = f"ext-{str(uuid.uuid4())[:8]}"
     confirmed.append({"id": ext_id, "name": data.name, "external": True, "timestamp": datetime.now(timezone.utc).isoformat()})
     await db.weekly_events.update_one({"id": event_id}, {"$set": {"confirmed_players": confirmed}})
