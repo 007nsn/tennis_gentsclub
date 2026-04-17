@@ -2218,12 +2218,12 @@ async def create_weekly_event(data: WeeklyEventCreate, admin: dict = Depends(get
         "location": data.location or settings.get("default_location", "Local Tennis Club"),
         "start_time": data.start_time or settings.get("default_start_time", "09:00"),
         "num_courts": data.num_courts or settings.get("num_courts", 2),
-        "status": "open",  # open, approved, scheduled
+        "status": "open",  # open, scheduled
         "rsvp_closed": False,
-        "approved_players": [],
-        "waitlist_players": [],
+        "confirmed_players": [],
         "bench_players": [],
         "generated_schedule": None,
+        "is_admin_overridden": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin["id"]
     }
@@ -2267,7 +2267,7 @@ async def delete_weekly_event(event_id: str, admin: dict = Depends(get_admin_use
 
 @api_router.post("/checkins")
 async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_user)):
-    """User submits or updates their check-in for an event"""
+    """User RSVPs for an event. Auto-confirmed if spots available, otherwise benched."""
     event = await db.weekly_events.find_one({"id": data.event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -2278,7 +2278,7 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
     # Get settings for RSVP open day/time
     settings = await db.settings.find_one({}, {"_id": 0}) or {}
     tz_name = settings.get("checkin_timezone", "US/Eastern")
-    rsvp_open_day = settings.get("rsvp_open_day", 2)  # 0=Mon..6=Sun, default Wed
+    rsvp_open_day = settings.get("rsvp_open_day", 2)
     rsvp_open_hour = settings.get("rsvp_open_hour", 7)
     try:
         import zoneinfo
@@ -2287,14 +2287,10 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
         tz = timezone.utc
     now_local = datetime.now(tz)
     event_date = datetime.strptime(event["event_date"], "%Y-%m-%d").replace(tzinfo=tz)
-
-    # Calculate RSVP open time: Sunday minus days to reach rsvp_open_day
-    # Sunday is weekday 6. If rsvp_open_day=2 (Wed), that's Sunday - 4 days
     days_before_sunday = (6 - rsvp_open_day) % 7
     rsvp_open_dt = (event_date - timedelta(days=days_before_sunday)).replace(
         hour=rsvp_open_hour, minute=0, second=0, microsecond=0
     )
-
     day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     if now_local < rsvp_open_dt:
         raise HTTPException(
@@ -2302,47 +2298,89 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
             detail=f"RSVP opens {day_names[rsvp_open_day]} at {rsvp_open_hour}:00 AM ({tz_name})"
         )
 
-    # If RSVP is closed, only allow bench or not_available
     rsvp_closed = event.get("rsvp_closed", False)
-    if rsvp_closed and data.status == "available":
-        raise HTTPException(status_code=400, detail="RSVP is closed. You can join the Bench (waiting list).")
-    if rsvp_closed and data.status == "maybe":
-        raise HTTPException(status_code=400, detail="RSVP is closed. You can join the Bench (waiting list).")
+    now_ts = datetime.now(timezone.utc).isoformat()
+    max_players = event.get("num_courts", 2) * 4
+    confirmed = event.get("confirmed_players", [])
+    bench = event.get("bench_players", [])
 
-    checkin_id = str(uuid.uuid4())
-    # Upsert
+    # Determine final status
+    final_status = data.status
+    if data.status == "available":
+        if rsvp_closed:
+            # RSVP closed — auto-bench
+            final_status = "bench"
+        elif len(confirmed) >= max_players:
+            # Courts full — auto-bench
+            final_status = "bench"
+        else:
+            final_status = "confirmed"
+
+    if rsvp_closed and data.status == "maybe":
+        raise HTTPException(status_code=400, detail="RSVP is closed. You can join the Bench.")
+
+    # Upsert checkin record
     existing = await db.checkins.find_one({"event_id": data.event_id, "user_id": user["id"]})
     if existing:
+        old_status = existing.get("status")
         await db.checkins.update_one(
             {"event_id": data.event_id, "user_id": user["id"]},
-            {"$set": {"status": data.status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+            {"$set": {"status": final_status, "updated_at": now_ts}}
         )
+        # Remove from old lists
+        if old_status == "confirmed":
+            confirmed = [p for p in confirmed if p.get("id") != user["id"]]
+        if old_status == "bench":
+            bench = [p for p in bench if p.get("id") != user["id"]]
     else:
         checkin = {
-            "id": checkin_id,
+            "id": str(uuid.uuid4()),
             "event_id": data.event_id,
             "user_id": user["id"],
             "user_name": user["name"],
-            "status": data.status,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
+            "status": final_status,
+            "created_at": now_ts,
+            "updated_at": now_ts
         }
         await db.checkins.insert_one(checkin)
 
-    # If status is bench, add to bench_players list on event
-    if data.status == "bench":
-        bench = event.get("bench_players", [])
+    # Update event lists
+    player_entry = {"id": user["id"], "name": user["name"], "timestamp": now_ts}
+    if final_status == "confirmed":
+        if not any(p.get("id") == user["id"] for p in confirmed):
+            confirmed.append(player_entry)
+        # Remove from bench if present
+        bench = [b for b in bench if b.get("id") != user["id"]]
+    elif final_status == "bench":
         if not any(b.get("id") == user["id"] for b in bench):
-            bench.append({"id": user["id"], "name": user["name"], "added_at": datetime.now(timezone.utc).isoformat()})
-            await db.weekly_events.update_one({"id": data.event_id}, {"$set": {"bench_players": bench}})
-    else:
-        # Remove from bench if changing away from bench
-        bench = event.get("bench_players", [])
-        new_bench = [b for b in bench if b.get("id") != user["id"]]
-        if len(new_bench) != len(bench):
-            await db.weekly_events.update_one({"id": data.event_id}, {"$set": {"bench_players": new_bench}})
+            bench.append(player_entry)
+        # Remove from confirmed if present
+        confirmed = [p for p in confirmed if p.get("id") != user["id"]]
+    elif final_status in ("not_available", "maybe"):
+        confirmed = [p for p in confirmed if p.get("id") != user["id"]]
+        bench = [b for b in bench if b.get("id") != user["id"]]
+        # If a confirmed spot freed up, promote first bench player
+        if len(confirmed) < max_players and bench:
+            promoted = bench.pop(0)
+            promoted_entry = {"id": promoted["id"], "name": promoted["name"], "timestamp": now_ts}
+            confirmed.append(promoted_entry)
+            await db.checkins.update_one(
+                {"event_id": data.event_id, "user_id": promoted["id"]},
+                {"$set": {"status": "confirmed", "updated_at": now_ts}}
+            )
 
-    return {"message": "Check-in updated" if existing else "Check-in submitted", "status": data.status}
+    await db.weekly_events.update_one({"id": data.event_id}, {"$set": {
+        "confirmed_players": confirmed,
+        "bench_players": bench
+    }})
+
+    msg_map = {
+        "confirmed": f"You're confirmed! ({len(confirmed)}/{max_players} spots filled)",
+        "bench": f"Courts are full. You're #{len([b for b in bench if b.get('id') == user['id']]) or len(bench)} on the Bench.",
+        "not_available": "Marked as unavailable",
+        "maybe": "Marked as Maybe"
+    }
+    return {"message": msg_map.get(final_status, "Status updated"), "status": final_status}
 
 @api_router.get("/checkins/{event_id}")
 async def get_event_checkins(event_id: str):
@@ -2396,80 +2434,81 @@ async def admin_override(event_id: str, data: AdminOverrideRequest, admin: dict 
     if not u:
         raise HTTPException(status_code=404, detail="Player not found")
 
-    approved = event.get("approved_players", [])
-    waitlist = event.get("waitlist_players", [])
-    player_entry = {"id": u["id"], "name": u["name"]}
+    confirmed = event.get("confirmed_players", [])
+    bench = event.get("bench_players", [])
+    player_entry = {"id": u["id"], "name": u["name"], "timestamp": datetime.now(timezone.utc).isoformat()}
 
-    approved = [p for p in approved if p["id"] != data.player_id]
-    waitlist = [p for p in waitlist if p["id"] != data.player_id]
+    confirmed = [p for p in confirmed if p["id"] != data.player_id]
+    bench = [p for p in bench if p["id"] != data.player_id]
 
-    if data.action == "add_approved":
-        approved.append(player_entry)
-    elif data.action == "move_to_waitlist":
-        waitlist.append(player_entry)
+    if data.action == "add_confirmed":
+        confirmed.append(player_entry)
+    elif data.action == "move_to_bench":
+        bench.append(player_entry)
     elif data.action == "remove":
         pass
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
 
     await db.weekly_events.update_one({"id": event_id}, {"$set": {
-        "approved_players": approved,
-        "waitlist_players": waitlist,
+        "confirmed_players": confirmed,
+        "bench_players": bench,
     }})
-    return {"message": f"Player {data.action}", "approved_count": len(approved), "waitlist_count": len(waitlist)}
+    return {"message": f"Player {data.action}", "confirmed_count": len(confirmed), "bench_count": len(bench)}
 
 @api_router.post("/weekly-events/{event_id}/cancel-player")
 async def cancel_player(event_id: str, user: dict = Depends(get_current_user)):
-    """Player cancels their approved spot - auto-promote from waitlist"""
+    """Player cancels their confirmed spot - auto-promote from bench"""
     event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    approved = event.get("approved_players", [])
-    waitlist = event.get("waitlist_players", [])
+    confirmed = event.get("confirmed_players", [])
+    bench = event.get("bench_players", [])
 
-    was_approved = any(p["id"] == user["id"] for p in approved)
-    approved = [p for p in approved if p["id"] != user["id"]]
+    was_confirmed = any(p["id"] == user["id"] for p in confirmed)
+    confirmed = [p for p in confirmed if p["id"] != user["id"]]
 
     promoted = None
-    if was_approved and waitlist:
-        promoted = waitlist.pop(0)
-        approved.append(promoted)
+    if was_confirmed and bench:
+        bench.sort(key=lambda b: b.get("timestamp", b.get("added_at", "")))
+        promoted = bench.pop(0)
+        confirmed.append({"id": promoted["id"], "name": promoted["name"], "timestamp": datetime.now(timezone.utc).isoformat()})
 
     await db.weekly_events.update_one({"id": event_id}, {"$set": {
-        "approved_players": approved,
-        "waitlist_players": waitlist,
+        "confirmed_players": confirmed,
+        "bench_players": bench,
     }})
 
     await db.checkins.update_one(
         {"event_id": event_id, "user_id": user["id"]},
-        {"$set": {"status": "not_available", "updated_at": datetime.now(timezone.utc).isoformat()}}
+        {"$set": {"status": "cancelled", "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
 
     msg = "Cancelled"
     if promoted:
-        msg += f". {promoted['name']} auto-promoted from waitlist."
+        msg += f". {promoted['name']} auto-promoted from bench."
     return {"message": msg}
 
 # --- Generate Doubles Round Robin ---
 
 @api_router.post("/weekly-events/{event_id}/generate-schedule")
 async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRRequest, admin: dict = Depends(get_admin_user)):
-    """Generate doubles round robin from approved players"""
+    """Generate doubles round robin from confirmed players"""
     event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    approved = event.get("approved_players", [])
-    if len(approved) < 4:
-        raise HTTPException(status_code=400, detail=f"Need at least 4 approved players (have {len(approved)})")
+    confirmed = event.get("confirmed_players", [])
+    if len(confirmed) < 4:
+        raise HTTPException(status_code=400, detail=f"Need at least 4 confirmed players (have {len(confirmed)})")
 
     settings = await db.settings.find_one({}, {"_id": 0}) or {}
     nc = data.num_courts or event.get("num_courts") or settings.get("num_courts", 2)
     st = data.start_time or event.get("start_time") or settings.get("default_start_time", "09:00")
     dur = data.match_duration_minutes or settings.get("match_duration_minutes", 30)
 
-    rounds = generate_doubles_round_robin(approved, nc)
+    rounds = generate_doubles_round_robin(confirmed, nc)
 
     start_hour, start_min = map(int, st.split(":"))
     for r in rounds:
@@ -2479,6 +2518,7 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
     await db.weekly_events.update_one({"id": event_id}, {"$set": {
         "generated_schedule": rounds,
         "status": "scheduled",
+        "is_admin_overridden": False,
         "schedule_settings": {"num_courts": nc, "start_time": st, "match_duration": dur}
     }})
 
@@ -2506,6 +2546,71 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
     return {"message": f"Schedule generated: {len(rounds)} rounds", "rounds": rounds}
 
 
+class ScheduleEditRequest(BaseModel):
+    schedule: list  # The full edited schedule (rounds array)
+
+@api_router.put("/weekly-events/{event_id}/edit-schedule")
+async def edit_schedule(event_id: str, data: ScheduleEditRequest, admin: dict = Depends(get_admin_user)):
+    """Admin manually edits the generated schedule. Sets isAdminOverridden to prevent auto-regeneration."""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if not event.get("generated_schedule"):
+        raise HTTPException(status_code=400, detail="No schedule to edit. Generate one first.")
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {
+        "generated_schedule": data.schedule,
+        "is_admin_overridden": True
+    }})
+    return {"message": "Schedule updated. Auto-generation disabled for this event."}
+
+@api_router.post("/weekly-events/{event_id}/swap-player")
+async def swap_player_in_schedule(event_id: str, round_idx: int = Query(...), match_idx: int = Query(...), team: str = Query(...), player_idx: int = Query(...), new_player_id: str = Query(...), admin: dict = Depends(get_admin_user)):
+    """Admin swaps a player in the schedule (e.g., replace no-show with bench player)."""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    schedule = event.get("generated_schedule", [])
+    if not schedule:
+        raise HTTPException(status_code=400, detail="No schedule exists")
+
+    # Find new player info
+    bench = event.get("bench_players", [])
+    confirmed = event.get("confirmed_players", [])
+    new_player = None
+    # Check bench first
+    for b in bench:
+        if b["id"] == new_player_id:
+            new_player = {"id": b["id"], "name": b["name"]}
+            break
+    # Check confirmed
+    if not new_player:
+        for c in confirmed:
+            if c["id"] == new_player_id:
+                new_player = {"id": c["id"], "name": c["name"]}
+                break
+    # Check users
+    if not new_player:
+        u = await db.users.find_one({"id": new_player_id}, {"_id": 0, "id": 1, "name": 1})
+        if u:
+            new_player = {"id": u["id"], "name": u["name"]}
+    if not new_player:
+        raise HTTPException(status_code=404, detail="Player not found")
+
+    try:
+        match = schedule[round_idx]["matches"][match_idx]
+        old_player = match[team][player_idx]
+        match[team][player_idx] = new_player
+    except (IndexError, KeyError):
+        raise HTTPException(status_code=400, detail="Invalid round/match/team/player index")
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {
+        "generated_schedule": schedule,
+        "is_admin_overridden": True
+    }})
+    return {"message": f"Swapped {old_player.get('name', '?')} with {new_player['name']}. Admin override active."}
+
+
 # --- RSVP Close / Drop Out / External Player ---
 
 @api_router.post("/weekly-events/{event_id}/close-rsvp")
@@ -2528,35 +2633,36 @@ async def reopen_rsvp(event_id: str, admin: dict = Depends(get_admin_user)):
 
 @api_router.post("/weekly-events/{event_id}/drop-out")
 async def drop_out_player(event_id: str, user: dict = Depends(get_current_user)):
-    """Confirmed available player drops out. Auto-promotes first bench player."""
+    """Confirmed player drops out. Auto-promotes first bench player (FIFO by timestamp)."""
     event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    approved = event.get("approved_players", [])
+    confirmed = event.get("confirmed_players", [])
     bench = event.get("bench_players", [])
 
-    was_approved = any(p["id"] == user["id"] for p in approved)
-    approved = [p for p in approved if p["id"] != user["id"]]
+    was_confirmed = any(p["id"] == user["id"] for p in confirmed)
+    confirmed = [p for p in confirmed if p["id"] != user["id"]]
 
     promoted = None
-    if was_approved and bench:
+    if was_confirmed and bench:
+        # Sort bench by timestamp to ensure FIFO
+        bench.sort(key=lambda b: b.get("timestamp", b.get("added_at", "")))
         promoted = bench.pop(0)
-        approved.append({"id": promoted["id"], "name": promoted["name"]})
-        # Update the promoted player's checkin to available
+        now_ts = datetime.now(timezone.utc).isoformat()
+        confirmed.append({"id": promoted["id"], "name": promoted["name"], "timestamp": now_ts})
         await db.checkins.update_one(
             {"event_id": event_id, "user_id": promoted["id"]},
-            {"$set": {"status": "available", "updated_at": datetime.now(timezone.utc).isoformat()}}
+            {"$set": {"status": "confirmed", "updated_at": now_ts}}
         )
 
-    # Also update checkins for the available players list (for non-approved events)
     await db.checkins.update_one(
         {"event_id": event_id, "user_id": user["id"]},
-        {"$set": {"status": "dropped_out", "updated_at": datetime.now(timezone.utc).isoformat()}}
+        {"$set": {"status": "cancelled", "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
 
     await db.weekly_events.update_one({"id": event_id}, {"$set": {
-        "approved_players": approved,
+        "confirmed_players": confirmed,
         "bench_players": bench,
     }})
 
@@ -2567,16 +2673,16 @@ async def drop_out_player(event_id: str, user: dict = Depends(get_current_user))
 
 @api_router.post("/weekly-events/{event_id}/add-external-player")
 async def add_external_player(event_id: str, data: AddExternalPlayerRequest, admin: dict = Depends(get_admin_user)):
-    """Admin adds an external (non-member) player by name to the approved list."""
+    """Admin adds an external (non-member) player by name to the confirmed list."""
     event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    approved = event.get("approved_players", [])
+    confirmed = event.get("confirmed_players", [])
     ext_id = f"ext-{str(uuid.uuid4())[:8]}"
-    approved.append({"id": ext_id, "name": data.name, "external": True})
-    await db.weekly_events.update_one({"id": event_id}, {"$set": {"approved_players": approved}})
-    return {"message": f"External player '{data.name}' added to approved list.", "player_id": ext_id}
+    confirmed.append({"id": ext_id, "name": data.name, "external": True, "timestamp": datetime.now(timezone.utc).isoformat()})
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {"confirmed_players": confirmed}})
+    return {"message": f"External player '{data.name}' added.", "player_id": ext_id}
 
 @api_router.get("/weekly-events/{event_id}/checkin-window")
 async def get_checkin_window(event_id: str):

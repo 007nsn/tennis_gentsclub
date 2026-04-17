@@ -1,17 +1,18 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useAuth } from '../context/AuthContext';
 import {
-    getSchedules, getUpcomingWeeklyEvents, getWeeklyEvent,
+    getSchedules, getUpcomingWeeklyEvents,
     submitCheckIn, getMyCheckIn, getCheckInWindow,
-    createWeeklyEvent, approvePlayers, adminOverride,
+    createWeeklyEvent, adminOverride,
     cancelPlayerSpot, generateDoublesSchedule, deleteWeeklyEvent,
     getEventCheckIns, closeRsvp, reopenRsvp, dropOutFromEvent,
-    addExternalPlayer
+    addExternalPlayer, editSchedule
 } from '../lib/api';
 import { Calendar as CalendarComponent } from '../components/ui/calendar';
 import { toast } from 'sonner';
@@ -19,10 +20,10 @@ import {
     Calendar, Clock, MapPin, Users, Check, X, HelpCircle,
     Plus, Loader2, Shield, UserCheck, UserX, ListChecks,
     Shuffle, Trash2, ChevronDown, ChevronUp, CloudSun,
-    Lock, Unlock, LogOut, UserPlus, Armchair
+    Lock, Unlock, LogOut, UserPlus, Armchair, Edit3, Save
 } from 'lucide-react';
 
-function CheckInButton({ eventId, onUpdate }) {
+function CheckInButton({ eventId, event, onUpdate }) {
     const { user } = useAuth();
     const [myStatus, setMyStatus] = useState(null);
     const [windowOpen, setWindowOpen] = useState(false);
@@ -38,21 +39,15 @@ function CheckInButton({ eventId, onUpdate }) {
         ]).finally(() => setLoading(false));
     }, [eventId, user]);
 
-    const handleCheckIn = async (status) => {
+    const handleRsvp = async (status) => {
         setSubmitting(true);
         try {
-            await submitCheckIn({ event_id: eventId, status });
-            setMyStatus(status);
-            const msgs = {
-                available: "You're in!",
-                maybe: 'Marked as Maybe',
-                not_available: 'Marked as unavailable',
-                bench: 'Added to the Bench (waiting list)'
-            };
-            toast.success(msgs[status] || 'Status updated');
+            const res = await submitCheckIn({ event_id: eventId, status });
+            setMyStatus(res.data.status);
+            toast.success(res.data.message);
             onUpdate?.();
         } catch (err) {
-            toast.error(err.response?.data?.detail || 'Failed to check in');
+            toast.error(err.response?.data?.detail || 'Failed');
         } finally {
             setSubmitting(false);
         }
@@ -61,106 +56,81 @@ function CheckInButton({ eventId, onUpdate }) {
     if (!user) return null;
     if (loading) return <div className="text-sm text-gray-400">Loading...</div>;
 
-    const rsvpClosed = windowInfo?.rsvp_closed;
     const openDayName = windowInfo?.open_day_name || 'Wednesday';
     const openHour = windowInfo?.open_hour ?? 7;
+    const rsvpClosed = windowInfo?.rsvp_closed;
+    const maxPlayers = (event?.num_courts || 2) * 4;
+    const confirmedCount = event?.confirmed_players?.length || 0;
+    const spotsLeft = Math.max(0, maxPlayers - confirmedCount);
 
     if (!windowOpen) {
-        const opensAt = windowInfo?.opens_at ? new Date(windowInfo.opens_at) : null;
         return (
             <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3" data-testid="checkin-closed">
                 <Clock className="w-4 h-4 inline mr-1" />
                 RSVP opens {openDayName} at {openHour}:00 AM ({windowInfo?.timezone || 'US/Eastern'})
-                {opensAt && <div className="text-xs mt-1">{opensAt.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>}
             </div>
         );
     }
 
-    // RSVP is closed - show only Bench or Not Available
-    if (rsvpClosed) {
-        const benchConfig = {
-            bench: { label: 'Bench', icon: Armchair, color: 'bg-orange-500 hover:bg-orange-600 text-white' },
-            not_available: { label: 'Not Available', icon: X, color: 'bg-red-500 hover:bg-red-600 text-white' },
-        };
-        return (
-            <div data-testid="checkin-buttons-closed">
-                <div className="flex items-center gap-2 mb-2">
-                    <Lock className="w-4 h-4 text-red-500" />
-                    <p className="text-sm font-medium text-red-600">RSVP Closed</p>
-                </div>
-                <p className="text-xs text-gray-500 mb-2">You can join the Bench (waiting list)</p>
-                <div className="flex gap-2 flex-wrap">
-                    {Object.entries(benchConfig).map(([status, cfg]) => {
-                        const Icon = cfg.icon;
-                        const isActive = myStatus === status;
-                        return (
-                            <Button
-                                key={status}
-                                size="sm"
-                                disabled={submitting}
-                                className={isActive ? cfg.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}
-                                onClick={() => handleCheckIn(status)}
-                                data-testid={`checkin-${status}`}
-                            >
-                                <Icon className="w-4 h-4 mr-1" />
-                                {cfg.label}
-                            </Button>
-                        );
-                    })}
-                </div>
-                {myStatus && (
-                    <p className="text-xs text-gray-500 mt-1">
-                        Current: <span className="font-medium capitalize">{myStatus === 'bench' ? 'On the Bench' : myStatus.replace('_', ' ')}</span>
-                    </p>
-                )}
-            </div>
-        );
-    }
-
-    // RSVP is open - show all options
-    const statusConfig = {
-        available: { label: 'Available', icon: Check, color: 'bg-green-500 hover:bg-green-600 text-white' },
-        maybe: { label: 'Maybe', icon: HelpCircle, color: 'bg-amber-500 hover:bg-amber-600 text-white' },
-        not_available: { label: 'Not Available', icon: X, color: 'bg-red-500 hover:bg-red-600 text-white' },
-    };
+    const isConfirmed = myStatus === 'confirmed';
+    const isBenched = myStatus === 'bench';
+    const isCancelled = myStatus === 'cancelled' || myStatus === 'not_available';
 
     return (
         <div data-testid="checkin-buttons">
-            <p className="text-sm font-medium mb-2">Your RSVP:</p>
-            <div className="flex gap-2 flex-wrap">
-                {Object.entries(statusConfig).map(([status, cfg]) => {
-                    const Icon = cfg.icon;
-                    const isActive = myStatus === status;
-                    return (
-                        <Button
-                            key={status}
-                            size="sm"
-                            disabled={submitting}
-                            className={isActive ? cfg.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}
-                            onClick={() => handleCheckIn(status)}
-                            data-testid={`checkin-${status}`}
-                        >
-                            <Icon className="w-4 h-4 mr-1" />
-                            {cfg.label}
-                        </Button>
-                    );
-                })}
+            {/* Spots info */}
+            <div className="text-xs text-gray-500 mb-2">
+                {spotsLeft > 0 ? (
+                    <span className="text-green-600 font-medium">{spotsLeft} spot{spotsLeft !== 1 ? 's' : ''} left</span>
+                ) : (
+                    <span className="text-orange-600 font-medium">Courts full — new RSVPs go to Bench</span>
+                )}
+                {rsvpClosed && <span className="text-red-500 ml-2 font-medium">(RSVP Closed)</span>}
             </div>
-            {myStatus && (
-                <p className="text-xs text-gray-500 mt-1">
-                    Current: <span className="font-medium capitalize">{myStatus.replace('_', ' ')}</span>
-                </p>
+
+            {isConfirmed ? (
+                <div>
+                    <Badge className="bg-green-500 text-white mb-2"><Check className="w-3 h-3 mr-1" />Confirmed</Badge>
+                    <Button size="sm" variant="outline" className="text-red-500 border-red-200 w-full" onClick={() => handleRsvp('not_available')} disabled={submitting} data-testid="drop-out-btn">
+                        <LogOut className="w-4 h-4 mr-1" /> Drop Out
+                    </Button>
+                </div>
+            ) : isBenched ? (
+                <div>
+                    <Badge className="bg-orange-500 text-white mb-2"><Armchair className="w-3 h-3 mr-1" />On the Bench</Badge>
+                    <p className="text-xs text-gray-500 mb-1">You'll be auto-promoted if a spot opens</p>
+                    <Button size="sm" variant="outline" className="text-red-500 border-red-200 w-full" onClick={() => handleRsvp('not_available')} disabled={submitting}>
+                        <X className="w-4 h-4 mr-1" /> Cancel
+                    </Button>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    <Button size="sm" className="bg-green-500 hover:bg-green-600 text-white w-full" onClick={() => handleRsvp('available')} disabled={submitting} data-testid="rsvp-btn">
+                        {submitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Check className="w-4 h-4 mr-1" />}
+                        {spotsLeft > 0 && !rsvpClosed ? 'RSVP — I\'m In!' : 'Join Bench'}
+                    </Button>
+                    <div className="flex gap-2">
+                        <Button size="sm" variant="outline" className="flex-1 text-amber-600" onClick={() => handleRsvp('maybe')} disabled={submitting || rsvpClosed} data-testid="checkin-maybe">
+                            <HelpCircle className="w-3 h-3 mr-1" /> Maybe
+                        </Button>
+                        <Button size="sm" variant="outline" className="flex-1 text-gray-500" onClick={() => handleRsvp('not_available')} disabled={submitting} data-testid="checkin-not-available">
+                            <X className="w-3 h-3 mr-1" /> Can't
+                        </Button>
+                    </div>
+                </div>
             )}
         </div>
     );
 }
 
-function AvailablePlayersList({ event, onUpdate }) {
+function PlayersList({ event, onUpdate }) {
     const { user } = useAuth();
+    const confirmed = event.confirmed_players || [];
+    const bench = event.bench_players || [];
+    const maxPlayers = (event.num_courts || 2) * 4;
     const [dropping, setDropping] = useState(false);
 
-    const approved = event.approved_players || [];
-    const isPlayerApproved = user && approved.some(p => p.id === user.id);
+    const isPlayerConfirmed = user && confirmed.some(p => p.id === user.id);
 
     const handleDropOut = async () => {
         setDropping(true);
@@ -169,71 +139,118 @@ function AvailablePlayersList({ event, onUpdate }) {
             toast.success(res.data.message);
             onUpdate?.();
         } catch (err) {
-            toast.error(err.response?.data?.detail || 'Failed to drop out');
+            toast.error(err.response?.data?.detail || 'Failed');
         } finally {
             setDropping(false);
         }
     };
 
-    if (approved.length === 0) return null;
-
     return (
-        <div className="mb-3" data-testid="available-players-list">
-            <p className="text-xs font-medium text-gray-500 mb-1">Playing ({approved.length}):</p>
-            <div className="flex flex-wrap gap-1">
-                {approved.map(p => (
-                    <Badge key={p.id} className={`text-xs ${p.external ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
-                        {p.name}
-                        {p.external && <span className="ml-1 text-[10px] opacity-70">(guest)</span>}
-                    </Badge>
-                ))}
-            </div>
-            {isPlayerApproved && (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-red-500 border-red-200 hover:bg-red-50 mt-2"
-                    onClick={handleDropOut}
-                    disabled={dropping}
-                    data-testid="drop-out-btn"
-                >
-                    {dropping ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <LogOut className="w-4 h-4 mr-1" />}
-                    Drop Out
-                </Button>
+        <div>
+            {confirmed.length > 0 && (
+                <div className="mb-3" data-testid="confirmed-players-list">
+                    <p className="text-xs font-medium text-gray-500 mb-1">Confirmed ({confirmed.length}/{maxPlayers}):</p>
+                    <div className="flex flex-wrap gap-1">
+                        {confirmed.map((p, i) => (
+                            <Badge key={p.id} className={`text-xs ${p.external ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
+                                {i + 1}. {p.name}{p.external ? ' (guest)' : ''}
+                            </Badge>
+                        ))}
+                    </div>
+                    {isPlayerConfirmed && event.status !== 'scheduled' && (
+                        <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50 mt-2" onClick={handleDropOut} disabled={dropping} data-testid="drop-out-list-btn">
+                            {dropping ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <LogOut className="w-4 h-4 mr-1" />}
+                            Drop Out
+                        </Button>
+                    )}
+                </div>
+            )}
+            {bench.length > 0 && (
+                <div className="mb-3" data-testid="bench-players-list">
+                    <p className="text-xs font-medium text-gray-500 mb-1 flex items-center gap-1">
+                        <Armchair className="w-3 h-3" /> Bench ({bench.length}):
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                        {bench.map((p, i) => (
+                            <Badge key={p.id || i} variant="outline" className="text-xs border-orange-300 text-orange-700">
+                                #{i + 1} {p.name}
+                            </Badge>
+                        ))}
+                    </div>
+                </div>
             )}
         </div>
     );
 }
 
-function BenchPlayersList({ event }) {
+function EditableScheduleDisplay({ event, onRefresh, isAdmin }) {
+    const schedule = event.generated_schedule;
+    const [editing, setEditing] = useState(false);
+    const [editedSchedule, setEditedSchedule] = useState(null);
+    const [saving, setSaving] = useState(false);
     const bench = event.bench_players || [];
-    if (bench.length === 0) return null;
-    return (
-        <div className="mb-3" data-testid="bench-players-list">
-            <p className="text-xs font-medium text-gray-500 mb-1 flex items-center gap-1">
-                <Armchair className="w-3 h-3" /> Bench ({bench.length}):
-            </p>
-            <div className="flex flex-wrap gap-1">
-                {bench.map((p, i) => (
-                    <Badge key={p.id || i} variant="outline" className="text-xs border-orange-300 text-orange-700">
-                        #{i + 1} {p.name}
-                    </Badge>
-                ))}
-            </div>
-        </div>
-    );
-}
+    const confirmed = event.confirmed_players || [];
+    const allPlayers = [...confirmed, ...bench];
 
-function GeneratedScheduleDisplay({ schedule }) {
     if (!schedule || schedule.length === 0) return null;
+
+    const handlePlayerSwap = (roundIdx, matchIdx, team, playerIdx, newPlayerId) => {
+        if (!editedSchedule) return;
+        const newSchedule = JSON.parse(JSON.stringify(editedSchedule));
+        const player = allPlayers.find(p => p.id === newPlayerId);
+        if (player) {
+            newSchedule[roundIdx].matches[matchIdx][team][playerIdx] = { id: player.id, name: player.name };
+        }
+        setEditedSchedule(newSchedule);
+    };
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            await editSchedule(event.id, { schedule: editedSchedule });
+            toast.success('Schedule updated. Admin override active.');
+            setEditing(false);
+            onRefresh?.();
+        } catch (err) {
+            toast.error('Failed to save schedule');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const startEditing = () => {
+        setEditedSchedule(JSON.parse(JSON.stringify(schedule)));
+        setEditing(true);
+    };
+
+    const displaySchedule = editing ? editedSchedule : schedule;
 
     return (
         <div className="mt-4 space-y-3" data-testid="generated-schedule">
-            <h4 className="font-bold text-sm uppercase text-[#0051BA] flex items-center gap-2">
-                <Shuffle className="w-4 h-4" />
-                Doubles Round Robin
-            </h4>
-            {schedule.map((round) => (
+            <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm uppercase text-[#0051BA] flex items-center gap-2">
+                    <Shuffle className="w-4 h-4" />
+                    Doubles Round Robin
+                    {event.is_admin_overridden && <Badge className="bg-amber-100 text-amber-800 text-[10px]">Admin Edited</Badge>}
+                </h4>
+                {isAdmin && (
+                    <div className="flex gap-1">
+                        {editing ? (
+                            <>
+                                <Button size="sm" variant="outline" className="h-7 text-xs text-green-600" onClick={handleSave} disabled={saving}>
+                                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3 mr-1" />} Save
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditing(false)}>Cancel</Button>
+                            </>
+                        ) : (
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={startEditing} data-testid="edit-schedule-btn">
+                                <Edit3 className="w-3 h-3 mr-1" /> Edit
+                            </Button>
+                        )}
+                    </div>
+                )}
+            </div>
+            {displaySchedule.map((round, rIdx) => (
                 <div key={round.round} className="bg-gray-50 rounded-lg p-3">
                     <div className="font-medium text-sm mb-2 flex items-center gap-2">
                         <Badge className="bg-[#0051BA] text-white">Round {round.round}</Badge>
@@ -241,21 +258,39 @@ function GeneratedScheduleDisplay({ schedule }) {
                     </div>
                     <div className="space-y-2">
                         {round.matches.map((match, mIdx) => (
-                            <div key={`r${round.round}-m${mIdx}`} className="flex items-center gap-2 text-sm bg-white rounded p-2 border border-gray-100">
+                            <div key={`r${rIdx}-m${mIdx}`} className="flex items-center gap-2 text-sm bg-white rounded p-2 border border-gray-100">
                                 <Badge variant="outline" className="text-xs shrink-0">Court {match.court}</Badge>
-                                <span className="font-medium text-green-700">
-                                    {match.team_a.map(p => p.name).join(' & ')}
-                                </span>
-                                <span className="text-gray-400 text-xs">vs</span>
-                                <span className="font-medium text-blue-700">
-                                    {match.team_b.map(p => p.name).join(' & ')}
-                                </span>
+                                {editing ? (
+                                    <>
+                                        <div className="flex gap-1">
+                                            {match.team_a.map((p, pIdx) => (
+                                                <Select key={`a-${pIdx}`} value={p.id} onValueChange={(v) => handlePlayerSwap(rIdx, mIdx, 'team_a', pIdx, v)}>
+                                                    <SelectTrigger className="h-7 text-xs w-28"><SelectValue /></SelectTrigger>
+                                                    <SelectContent>{allPlayers.map(pl => <SelectItem key={pl.id} value={pl.id}>{pl.name}</SelectItem>)}</SelectContent>
+                                                </Select>
+                                            ))}
+                                        </div>
+                                        <span className="text-gray-400 text-xs">vs</span>
+                                        <div className="flex gap-1">
+                                            {match.team_b.map((p, pIdx) => (
+                                                <Select key={`b-${pIdx}`} value={p.id} onValueChange={(v) => handlePlayerSwap(rIdx, mIdx, 'team_b', pIdx, v)}>
+                                                    <SelectTrigger className="h-7 text-xs w-28"><SelectValue /></SelectTrigger>
+                                                    <SelectContent>{allPlayers.map(pl => <SelectItem key={pl.id} value={pl.id}>{pl.name}</SelectItem>)}</SelectContent>
+                                                </Select>
+                                            ))}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="font-medium text-green-700">{match.team_a.map(p => p.name).join(' & ')}</span>
+                                        <span className="text-gray-400 text-xs">vs</span>
+                                        <span className="font-medium text-blue-700">{match.team_b.map(p => p.name).join(' & ')}</span>
+                                    </>
+                                )}
                             </div>
                         ))}
                         {round.byes?.length > 0 && (
-                            <div className="text-xs text-gray-500 italic">
-                                Bye: {round.byes.map(b => b.name).join(', ')}
-                            </div>
+                            <div className="text-xs text-gray-500 italic">Bye: {round.byes.map(b => b.name).join(', ')}</div>
                         )}
                     </div>
                 </div>
@@ -282,68 +317,38 @@ function AdminEventPanel({ event, onRefresh }) {
 
     useEffect(() => { loadCheckins(); }, [loadCheckins]);
 
-    const available = checkins.filter(c => c.status === 'available');
     const maybe = checkins.filter(c => c.status === 'maybe');
-    const bench = checkins.filter(c => c.status === 'bench');
-    const approved = event.approved_players || [];
-    const waitlist = event.waitlist_players || [];
-    const benchPlayers = event.bench_players || [];
+    const confirmed = event.confirmed_players || [];
+    const bench = event.bench_players || [];
+    const maxPlayers = (event.num_courts || 2) * 4;
     const rsvpClosed = event.rsvp_closed;
 
-    const handleApproveAll = async () => {
-        const ids = available.map(c => c.user_id);
-        const maybeIds = maybe.map(c => c.user_id);
-        try {
-            await approvePlayers(event.id, {
-                event_id: event.id,
-                approved_player_ids: ids,
-                waitlist_player_ids: maybeIds
-            });
-            toast.success('Players approved!');
-            onRefresh();
-        } catch (e) { toast.error('Failed to approve'); }
-    };
-
-    const handleOverride = async (playerId, action) => {
-        try {
-            await adminOverride(event.id, { event_id: event.id, player_id: playerId, action });
-            toast.success('Player updated');
-            onRefresh();
-        } catch (e) { toast.error('Override failed'); }
-    };
-
     const handleGenerate = async () => {
+        if (event.is_admin_overridden) {
+            if (!window.confirm('This will overwrite the admin-edited schedule. Continue?')) return;
+        }
         setGenerating(true);
         try {
             await generateDoublesSchedule(event.id, { event_id: event.id });
             toast.success('Doubles schedule generated!');
             onRefresh();
-        } catch (e) { toast.error(e.response?.data?.detail || 'Failed to generate schedule'); }
+        } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
         finally { setGenerating(false); }
     };
 
     const handleDelete = async () => {
-        try {
-            await deleteWeeklyEvent(event.id);
-            toast.success('Event deleted');
-            onRefresh();
-        } catch (e) { toast.error('Delete failed'); }
+        try { await deleteWeeklyEvent(event.id); toast.success('Event deleted'); onRefresh(); }
+        catch (e) { toast.error('Delete failed'); }
     };
 
     const handleCloseRsvp = async () => {
-        try {
-            await closeRsvp(event.id);
-            toast.success('RSVP closed. Late players can only join the Bench.');
-            onRefresh();
-        } catch (e) { toast.error('Failed to close RSVP'); }
+        try { await closeRsvp(event.id); toast.success('RSVP closed.'); onRefresh(); }
+        catch (e) { toast.error('Failed'); }
     };
 
     const handleReopenRsvp = async () => {
-        try {
-            await reopenRsvp(event.id);
-            toast.success('RSVP reopened.');
-            onRefresh();
-        } catch (e) { toast.error('Failed to reopen RSVP'); }
+        try { await reopenRsvp(event.id); toast.success('RSVP reopened.'); onRefresh(); }
+        catch (e) { toast.error('Failed'); }
     };
 
     const handleAddExternal = async () => {
@@ -351,10 +356,10 @@ function AdminEventPanel({ event, onRefresh }) {
         setAddingExt(true);
         try {
             await addExternalPlayer(event.id, { name: extName.trim() });
-            toast.success(`External player "${extName.trim()}" added!`);
+            toast.success(`"${extName.trim()}" added!`);
             setExtName('');
             onRefresh();
-        } catch (e) { toast.error('Failed to add external player'); }
+        } catch (e) { toast.error('Failed'); }
         finally { setAddingExt(false); }
     };
 
@@ -368,7 +373,7 @@ function AdminEventPanel({ event, onRefresh }) {
                     </CardTitle>
                     <div className="flex items-center gap-2">
                         {rsvpClosed && <Badge className="bg-red-100 text-red-700">RSVP Closed</Badge>}
-                        <Badge className={event.status === 'scheduled' ? 'bg-green-100 text-green-800' : event.status === 'approved' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}>
+                        <Badge className={event.status === 'scheduled' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>
                             {event.status}
                         </Badge>
                         {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -377,145 +382,75 @@ function AdminEventPanel({ event, onRefresh }) {
             </CardHeader>
             {expanded && (
                 <CardContent className="space-y-4">
-                    {loading ? <p className="text-sm text-gray-500">Loading check-ins...</p> : (
+                    {loading ? <p className="text-sm text-gray-500">Loading...</p> : (
                         <>
-                            {/* Check-in summary */}
-                            <div className="grid grid-cols-4 gap-3">
+                            <div className="grid grid-cols-3 gap-3">
                                 <div className="bg-green-50 rounded-lg p-3 text-center">
-                                    <div className="text-2xl font-bold text-green-700">{available.length}</div>
-                                    <div className="text-xs text-green-600">Available</div>
-                                </div>
-                                <div className="bg-amber-50 rounded-lg p-3 text-center">
-                                    <div className="text-2xl font-bold text-amber-700">{maybe.length}</div>
-                                    <div className="text-xs text-amber-600">Maybe</div>
+                                    <div className="text-2xl font-bold text-green-700">{confirmed.length}</div>
+                                    <div className="text-xs text-green-600">Confirmed / {maxPlayers}</div>
                                 </div>
                                 <div className="bg-orange-50 rounded-lg p-3 text-center">
                                     <div className="text-2xl font-bold text-orange-700">{bench.length}</div>
                                     <div className="text-xs text-orange-600">Bench</div>
                                 </div>
-                                <div className="bg-blue-50 rounded-lg p-3 text-center">
-                                    <div className="text-2xl font-bold text-blue-700">{approved.length}</div>
-                                    <div className="text-xs text-blue-600">Approved</div>
+                                <div className="bg-amber-50 rounded-lg p-3 text-center">
+                                    <div className="text-2xl font-bold text-amber-700">{maybe.length}</div>
+                                    <div className="text-xs text-amber-600">Maybe</div>
                                 </div>
                             </div>
 
-                            {/* Available players */}
-                            {available.length > 0 && (
+                            {confirmed.length > 0 && (
                                 <div>
-                                    <p className="text-sm font-medium mb-1 flex items-center gap-1"><UserCheck className="w-4 h-4 text-green-600" /> Available:</p>
+                                    <p className="text-sm font-medium mb-1 flex items-center gap-1"><UserCheck className="w-4 h-4 text-green-600" /> Confirmed:</p>
                                     <div className="flex flex-wrap gap-1">
-                                        {available.map(c => (
-                                            <Badge key={c.user_id} className="bg-green-100 text-green-800">{c.user_name}</Badge>
+                                        {confirmed.map((p, i) => (
+                                            <Badge key={p.id} className={`text-xs ${p.external ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
+                                                {i+1}. {p.name}{p.external ? ' (guest)' : ''}
+                                            </Badge>
                                         ))}
                                     </div>
                                 </div>
                             )}
-                            {maybe.length > 0 && (
-                                <div>
-                                    <p className="text-sm font-medium mb-1 flex items-center gap-1"><HelpCircle className="w-4 h-4 text-amber-600" /> Maybe:</p>
-                                    <div className="flex flex-wrap gap-1">
-                                        {maybe.map(c => (
-                                            <Badge key={c.user_id} className="bg-amber-100 text-amber-800">{c.user_name}</Badge>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            {/* Bench players */}
-                            {benchPlayers.length > 0 && (
+
+                            {bench.length > 0 && (
                                 <div>
                                     <p className="text-sm font-medium mb-1 flex items-center gap-1"><Armchair className="w-4 h-4 text-orange-600" /> Bench:</p>
                                     <div className="flex flex-wrap gap-1">
-                                        {benchPlayers.map((p, i) => (
-                                            <Badge key={p.id || i} className="bg-orange-100 text-orange-800">#{i + 1} {p.name}</Badge>
+                                        {bench.map((p, i) => (
+                                            <Badge key={p.id || i} className="bg-orange-100 text-orange-800 text-xs">#{i+1} {p.name}</Badge>
                                         ))}
                                     </div>
                                 </div>
                             )}
 
-                            {/* Approved / Waitlist */}
-                            {approved.length > 0 && (
-                                <div>
-                                    <p className="text-sm font-medium mb-1 flex items-center gap-1"><ListChecks className="w-4 h-4 text-blue-600" /> Approved ({approved.length}):</p>
-                                    <div className="flex flex-wrap gap-1">
-                                        {approved.map(p => (
-                                            <Badge key={p.id} className={`pr-1 ${p.external ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
-                                                {p.name}{p.external && ' (guest)'}
-                                                <button onClick={() => handleOverride(p.id, 'move_to_waitlist')} className="ml-1 hover:text-red-600" title="Move to waitlist"><X className="w-3 h-3" /></button>
-                                            </Badge>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            {waitlist.length > 0 && (
-                                <div>
-                                    <p className="text-sm font-medium mb-1 text-gray-500">Waitlist ({waitlist.length}):</p>
-                                    <div className="flex flex-wrap gap-1">
-                                        {waitlist.map(p => (
-                                            <Badge key={p.id} variant="outline" className="pr-1">
-                                                {p.name}
-                                                <button onClick={() => handleOverride(p.id, 'add_approved')} className="ml-1 hover:text-green-600" title="Promote to approved"><Check className="w-3 h-3" /></button>
-                                            </Badge>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Add External Player (when no bench players available) */}
-                            <div className="border-t border-gray-100 pt-3">
-                                <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
-                                    <UserPlus className="w-3 h-3" /> Add non-member player:
-                                </p>
-                                <div className="flex gap-2">
-                                    <Input
-                                        size="sm"
-                                        placeholder="Player name"
-                                        value={extName}
-                                        onChange={e => setExtName(e.target.value)}
-                                        className="h-8 text-sm"
-                                        data-testid="ext-player-name"
-                                    />
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={handleAddExternal}
-                                        disabled={addingExt || !extName.trim()}
-                                        data-testid="add-ext-player-btn"
-                                    >
-                                        {addingExt ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                                    </Button>
-                                </div>
+                            {/* Add external player */}
+                            <div className="flex gap-2 items-center pt-2 border-t border-gray-100">
+                                <Input placeholder="Add non-member" value={extName} onChange={e => setExtName(e.target.value)} className="h-8 text-sm flex-1" data-testid="ext-player-name" />
+                                <Button size="sm" variant="outline" onClick={handleAddExternal} disabled={addingExt || !extName.trim()} data-testid="add-ext-player-btn">
+                                    {addingExt ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                                </Button>
                             </div>
 
-                            {/* Action buttons */}
+                            {/* Actions */}
                             <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
-                                {/* Close / Reopen RSVP */}
                                 {event.status === 'open' && !rsvpClosed && (
-                                    <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={handleCloseRsvp} data-testid="close-rsvp-btn">
-                                        <Lock className="w-4 h-4 mr-1" />
-                                        Close RSVP
+                                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" onClick={handleCloseRsvp} data-testid="close-rsvp-btn">
+                                        <Lock className="w-4 h-4 mr-1" /> Close RSVP
                                     </Button>
                                 )}
                                 {rsvpClosed && event.status === 'open' && (
-                                    <Button size="sm" variant="outline" className="text-green-600 border-green-200 hover:bg-green-50" onClick={handleReopenRsvp} data-testid="reopen-rsvp-btn">
-                                        <Unlock className="w-4 h-4 mr-1" />
-                                        Reopen RSVP
+                                    <Button size="sm" variant="outline" className="text-green-600 border-green-200" onClick={handleReopenRsvp} data-testid="reopen-rsvp-btn">
+                                        <Unlock className="w-4 h-4 mr-1" /> Reopen RSVP
                                     </Button>
                                 )}
-
-                                {event.status === 'open' && available.length > 0 && (
-                                    <Button size="sm" className="bg-[#0051BA]" onClick={handleApproveAll} data-testid="approve-all-btn">
-                                        <UserCheck className="w-4 h-4 mr-1" />
-                                        Approve Available ({available.length})
-                                    </Button>
-                                )}
-                                {(event.status === 'approved' && approved.length >= 4) && (
+                                {confirmed.length >= 4 && (
                                     <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleGenerate} disabled={generating} data-testid="generate-schedule-btn">
                                         {generating ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Shuffle className="w-4 h-4 mr-1" />}
-                                        Generate Doubles Schedule
+                                        {event.generated_schedule ? 'Regenerate' : 'Generate'} Schedule
                                     </Button>
                                 )}
                                 <Button size="sm" variant="ghost" className="text-red-500" onClick={handleDelete}>
-                                    <Trash2 className="w-4 h-4 mr-1" /> Delete Event
+                                    <Trash2 className="w-4 h-4 mr-1" /> Delete
                                 </Button>
                             </div>
                         </>
@@ -597,37 +532,18 @@ export default function Schedule() {
             </div>
 
             <div className="grid lg:grid-cols-3 gap-8">
-                {/* Left: Calendar + Admin Create */}
                 <div className="lg:col-span-1 space-y-6">
                     <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                        <CardHeader>
-                            <CardTitle className="font-['Barlow_Condensed'] uppercase">Select Date</CardTitle>
-                        </CardHeader>
+                        <CardHeader><CardTitle className="font-['Barlow_Condensed'] uppercase">Select Date</CardTitle></CardHeader>
                         <CardContent>
-                            <CalendarComponent
-                                mode="single"
-                                selected={selectedDate}
-                                onSelect={(date) => date && setSelectedDate(date)}
-                                className="rounded-lg"
-                                modifiers={calendarModifiers}
-                                modifiersStyles={calendarModifierStyles}
-                            />
+                            <CalendarComponent mode="single" selected={selectedDate} onSelect={(date) => date && setSelectedDate(date)} className="rounded-lg" modifiers={calendarModifiers} modifiersStyles={calendarModifierStyles} />
                         </CardContent>
                     </Card>
 
-                    {/* Weather Shortcut */}
                     <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                         <CardContent className="p-4">
-                            <a
-                                href="https://weather.com/weather/today/l/Hawthorne+NY+10532"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-3 group"
-                                data-testid="weather-link"
-                            >
-                                <div className="w-10 h-10 bg-sky-100 rounded-lg flex items-center justify-center group-hover:bg-sky-200 transition-colors">
-                                    <CloudSun className="w-5 h-5 text-sky-600" />
-                                </div>
+                            <a href="https://weather.com/weather/today/l/Hawthorne+NY+10532" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 group" data-testid="weather-link">
+                                <div className="w-10 h-10 bg-sky-100 rounded-lg flex items-center justify-center group-hover:bg-sky-200 transition-colors"><CloudSun className="w-5 h-5 text-sky-600" /></div>
                                 <div>
                                     <p className="font-medium text-sm group-hover:text-[#0051BA] transition-colors">Hawthorne, NY Weather</p>
                                     <p className="text-xs text-gray-500">Check conditions for Sunday</p>
@@ -636,26 +552,18 @@ export default function Schedule() {
                         </CardContent>
                     </Card>
 
-                    {/* Admin: Create Sunday Event */}
                     {isAdmin && (
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                             <CardHeader className="pb-2">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <Shield className="w-4 h-4 text-[#0051BA]" />
-                                    Create Sunday Event
-                                </CardTitle>
+                                <CardTitle className="text-base flex items-center gap-2"><Shield className="w-4 h-4 text-[#0051BA]" />Create Sunday Event</CardTitle>
                             </CardHeader>
                             <CardContent>
                                 {showCreateForm ? (
                                     <div className="space-y-3">
-                                        <div>
-                                            <Label className="text-sm">Sunday Date</Label>
-                                            <Input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} data-testid="new-event-date" />
-                                        </div>
+                                        <div><Label className="text-sm">Sunday Date</Label><Input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} data-testid="new-event-date" /></div>
                                         <div className="flex gap-2">
                                             <Button size="sm" className="bg-[#0051BA]" onClick={handleCreateEvent} disabled={creating} data-testid="create-event-btn">
-                                                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
-                                                Create
+                                                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />} Create
                                             </Button>
                                             <Button size="sm" variant="ghost" onClick={() => setShowCreateForm(false)}>Cancel</Button>
                                         </div>
@@ -670,15 +578,11 @@ export default function Schedule() {
                     )}
                 </div>
 
-                {/* Right: Events + Schedules */}
                 <div className="lg:col-span-2 space-y-6">
-
-                    {/* Weekly Events with Check-In */}
                     {weeklyEvents.length > 0 && (
                         <div>
                             <h2 className="font-['Barlow_Condensed'] text-xl font-bold uppercase mb-4 flex items-center gap-2">
-                                <Users className="w-5 h-5 text-[#0051BA]" />
-                                Upcoming Sunday Events
+                                <Users className="w-5 h-5 text-[#0051BA]" /> Upcoming Sunday Events
                             </h2>
                             <div className="space-y-4">
                                 {weeklyEvents.map(event => (
@@ -688,18 +592,10 @@ export default function Schedule() {
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <h3 className="font-bold text-lg">{event.title}</h3>
-                                                        <Badge className={
-                                                            event.status === 'scheduled' ? 'bg-green-100 text-green-800' :
-                                                            event.status === 'approved' ? 'bg-blue-100 text-blue-800' :
-                                                            'bg-[#CCFF00] text-[#002040]'
-                                                        }>
-                                                            {event.status === 'scheduled' ? 'Schedule Ready' : event.status === 'approved' ? 'Approved' : 'RSVP Open'}
+                                                        <Badge className={event.status === 'scheduled' ? 'bg-green-100 text-green-800' : 'bg-[#CCFF00] text-[#002040]'}>
+                                                            {event.status === 'scheduled' ? 'Schedule Ready' : 'RSVP Open'}
                                                         </Badge>
-                                                        {event.rsvp_closed && (
-                                                            <Badge className="bg-red-100 text-red-700">
-                                                                <Lock className="w-3 h-3 mr-1" />RSVP Closed
-                                                            </Badge>
-                                                        )}
+                                                        {event.rsvp_closed && <Badge className="bg-red-100 text-red-700"><Lock className="w-3 h-3 mr-1" />Closed</Badge>}
                                                     </div>
                                                     <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-3">
                                                         <div className="flex items-center gap-1"><Calendar className="w-4 h-4" />{new Date(event.event_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
@@ -707,34 +603,13 @@ export default function Schedule() {
                                                         <div className="flex items-center gap-1"><MapPin className="w-4 h-4" />{event.location}</div>
                                                         <div className="flex items-center gap-1"><Users className="w-4 h-4" />{event.num_courts} court{event.num_courts > 1 ? 's' : ''}</div>
                                                     </div>
-
-                                                    {/* Available/Approved players with Drop Out */}
-                                                    <AvailablePlayersList event={event} onUpdate={refreshEvents} />
-
-                                                    {/* Waitlist */}
-                                                    {event.waitlist_players?.length > 0 && (
-                                                        <div className="mb-3">
-                                                            <p className="text-xs font-medium text-gray-500 mb-1">Waitlist ({event.waitlist_players.length}):</p>
-                                                            <div className="flex flex-wrap gap-1">
-                                                                {event.waitlist_players.map(p => (
-                                                                    <Badge key={p.id} variant="outline" className="text-xs">{p.name}</Badge>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    {/* Bench players */}
-                                                    <BenchPlayersList event={event} />
-
-                                                    {/* Generated Schedule */}
-                                                    <GeneratedScheduleDisplay schedule={event.generated_schedule} />
+                                                    <PlayersList event={event} onUpdate={refreshEvents} />
+                                                    <EditableScheduleDisplay event={event} onRefresh={refreshEvents} isAdmin={isAdmin} />
                                                 </div>
-
-                                                {/* Check-in area */}
-                                                <div className="md:w-64 shrink-0">
+                                                <div className="md:w-56 shrink-0">
                                                     {user && event.status !== 'scheduled' ? (
-                                                        <CheckInButton eventId={event.id} onUpdate={refreshEvents} />
-                                                    ) : event.status === 'scheduled' && user && event.approved_players?.some(p => p.id === user.id) ? (
+                                                        <CheckInButton eventId={event.id} event={event} onUpdate={refreshEvents} />
+                                                    ) : event.status === 'scheduled' && user && event.confirmed_players?.some(p => p.id === user.id) ? (
                                                         <div>
                                                             <Badge className="bg-green-100 text-green-800 mb-2">You're playing!</Badge>
                                                             <Button size="sm" variant="outline" className="text-red-500 w-full" onClick={async () => { await cancelPlayerSpot(event.id); refreshEvents(); }} data-testid="cancel-spot-btn">
@@ -742,7 +617,7 @@ export default function Schedule() {
                                                             </Button>
                                                         </div>
                                                     ) : !user ? (
-                                                        <p className="text-sm text-gray-500">Log in to check in</p>
+                                                        <p className="text-sm text-gray-500">Log in to RSVP</p>
                                                     ) : null}
                                                 </div>
                                             </div>
@@ -753,12 +628,10 @@ export default function Schedule() {
                         </div>
                     )}
 
-                    {/* Admin Panels for each event */}
                     {isAdmin && weeklyEvents.length > 0 && (
                         <div>
                             <h2 className="font-['Barlow_Condensed'] text-xl font-bold uppercase mb-4 flex items-center gap-2">
-                                <Shield className="w-5 h-5 text-[#0051BA]" />
-                                Admin Controls
+                                <Shield className="w-5 h-5 text-[#0051BA]" /> Admin Controls
                             </h2>
                             <div className="space-y-4">
                                 {weeklyEvents.map(event => (
@@ -768,7 +641,6 @@ export default function Schedule() {
                         </div>
                     )}
 
-                    {/* Existing schedules for selected date */}
                     {filteredSchedules.length > 0 && (
                         <div>
                             <h2 className="font-['Barlow_Condensed'] text-xl font-bold uppercase mb-4 flex items-center gap-2">
@@ -777,23 +649,13 @@ export default function Schedule() {
                             </h2>
                             <div className="space-y-4">
                                 {filteredSchedules.map(schedule => (
-                                    <Card key={schedule.id} className="match-card border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]" data-testid={`schedule-item-${schedule.id}`}>
+                                    <Card key={schedule.id} className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]" data-testid={`schedule-item-${schedule.id}`}>
                                         <CardContent className="p-6">
                                             <h3 className="font-bold text-lg mb-2">{schedule.title}</h3>
-                                            {schedule.description && <p className="text-gray-600 text-sm mb-3">{schedule.description}</p>}
                                             <div className="flex flex-wrap gap-4 text-sm text-gray-500">
                                                 <div className="flex items-center gap-2"><Clock className="w-4 h-4" />{schedule.match_time}</div>
                                                 <div className="flex items-center gap-2"><MapPin className="w-4 h-4" />{schedule.location}</div>
                                             </div>
-                                            {schedule.teams?.length > 0 && (
-                                                <div className="flex flex-wrap gap-2 mt-3">
-                                                    {schedule.teams.map((team) => (
-                                                        <Badge key={team} variant="outline" className="border-[#0051BA] text-[#0051BA]">
-                                                            <Users className="w-3 h-3 mr-1" />{team}
-                                                        </Badge>
-                                                    ))}
-                                                </div>
-                                            )}
                                         </CardContent>
                                     </Card>
                                 ))}
@@ -801,7 +663,6 @@ export default function Schedule() {
                         </div>
                     )}
 
-                    {/* Empty state */}
                     {!loading && weeklyEvents.length === 0 && filteredSchedules.length === 0 && (
                         <Card className="border-none">
                             <CardContent className="p-8 text-center text-gray-500">

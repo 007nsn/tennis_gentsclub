@@ -7,10 +7,10 @@ import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Badge } from '../../components/ui/badge';
-import { Plus, Loader2, Bell, Calendar, Users, Shuffle, Trash2, Lock, Unlock, UserPlus, Armchair } from 'lucide-react';
+import { Plus, Loader2, Bell, Calendar, Users, Shuffle, Trash2, Lock, Unlock, UserPlus, Armchair, UserCheck } from 'lucide-react';
 import {
     getUpcomingWeeklyEvents, createWeeklyEvent, getEventCheckIns,
-    approvePlayers, generateDoublesSchedule, deleteWeeklyEvent,
+    generateDoublesSchedule, deleteWeeklyEvent,
     createMatchReminder, closeRsvp, reopenRsvp, addExternalPlayer
 } from '../../lib/api';
 import { toast } from 'sonner';
@@ -49,54 +49,32 @@ export function AdminRoundRobinTab() {
         finally { setLoading(false); }
     };
 
-    const handleApproveAll = async (ev) => {
-        const available = (ev.checkins || []).filter(c => c.status === 'available');
-        const maybe = (ev.checkins || []).filter(c => c.status === 'maybe');
-        setLoading(true);
-        try {
-            await approvePlayers(ev.id, {
-                event_id: ev.id,
-                approved_player_ids: available.map(c => c.user_id),
-                waitlist_player_ids: maybe.map(c => c.user_id)
-            });
-            toast.success('Players approved!');
-            loadEvents();
-        } catch (e) { toast.error('Failed to approve'); }
-        finally { setLoading(false); }
-    };
-
     const handleGenerate = async (ev) => {
+        if (ev.is_admin_overridden) {
+            if (!window.confirm('This will overwrite the admin-edited schedule. Continue?')) return;
+        }
         setLoading(true);
         try {
             const res = await generateDoublesSchedule(ev.id, { event_id: ev.id });
             toast.success(res.data.message);
             loadEvents();
-        } catch (e) { toast.error(e.response?.data?.detail || 'Failed to generate'); }
+        } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
         finally { setLoading(false); }
     };
 
     const handleDeleteEvent = async (ev) => {
-        try {
-            await deleteWeeklyEvent(ev.id);
-            toast.success('Event deleted');
-            loadEvents();
-        } catch (e) { toast.error('Delete failed'); }
+        try { await deleteWeeklyEvent(ev.id); toast.success('Event deleted'); loadEvents(); }
+        catch (e) { toast.error('Delete failed'); }
     };
 
     const handleCloseRsvp = async (ev) => {
-        try {
-            await closeRsvp(ev.id);
-            toast.success('RSVP closed. Late players can only join the Bench.');
-            loadEvents();
-        } catch (e) { toast.error('Failed to close RSVP'); }
+        try { await closeRsvp(ev.id); toast.success('RSVP closed.'); loadEvents(); }
+        catch (e) { toast.error('Failed'); }
     };
 
     const handleReopenRsvp = async (ev) => {
-        try {
-            await reopenRsvp(ev.id);
-            toast.success('RSVP reopened.');
-            loadEvents();
-        } catch (e) { toast.error('Failed to reopen RSVP'); }
+        try { await reopenRsvp(ev.id); toast.success('RSVP reopened.'); loadEvents(); }
+        catch (e) { toast.error('Failed'); }
     };
 
     const handleAddExternal = async (ev) => {
@@ -104,28 +82,22 @@ export function AdminRoundRobinTab() {
         if (!name) return;
         try {
             await addExternalPlayer(ev.id, { name });
-            toast.success(`External player "${name}" added!`);
+            toast.success(`"${name}" added!`);
             setExtNames(prev => ({ ...prev, [ev.id]: '' }));
             loadEvents();
-        } catch (e) { toast.error('Failed to add player'); }
+        } catch (e) { toast.error('Failed'); }
     };
 
     const handleSendReminder = async (e) => {
         e.preventDefault();
-        if (!reminderForm.match_date || !reminderForm.message) {
-            toast.error('Please fill in date and message');
-            return;
-        }
+        if (!reminderForm.match_date || !reminderForm.message) { toast.error('Fill in date and message'); return; }
         setLoading(true);
         try {
             await createMatchReminder(reminderForm);
-            toast.success('Reminder posted to chatroom!');
+            toast.success('Reminder posted!');
             setReminderForm({ match_date: '', message: '' });
-        } catch (err) {
-            toast.error('Failed to post reminder');
-        } finally {
-            setLoading(false);
-        }
+        } catch (err) { toast.error('Failed'); }
+        finally { setLoading(false); }
     };
 
     const upcomingSundays = (() => {
@@ -143,53 +115,37 @@ export function AdminRoundRobinTab() {
     return (
         <TabsContent value="roundrobin">
             <div className="grid lg:grid-cols-2 gap-6">
-                {/* Create Event */}
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Calendar className="w-5 h-5 text-[#0051BA]" />
-                            Create Sunday Event
-                        </CardTitle>
-                        <CardDescription>Create an event to open RSVP for members</CardDescription>
+                        <CardTitle className="flex items-center gap-2"><Calendar className="w-5 h-5 text-[#0051BA]" />Create Sunday Event</CardTitle>
+                        <CardDescription>Players auto-confirm when they RSVP (up to court capacity)</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Select Sunday</Label>
-                            <Select value={newEventDate} onValueChange={setNewEventDate}>
-                                <SelectTrigger data-testid="new-event-select">
-                                    <SelectValue placeholder="Choose a Sunday" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {upcomingSundays.map(date => (
-                                        <SelectItem key={date} value={date}>
-                                            {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
+                        <Select value={newEventDate} onValueChange={setNewEventDate}>
+                            <SelectTrigger data-testid="new-event-select"><SelectValue placeholder="Choose a Sunday" /></SelectTrigger>
+                            <SelectContent>
+                                {upcomingSundays.map(date => (
+                                    <SelectItem key={date} value={date}>
+                                        {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                         <Button onClick={handleCreateEvent} disabled={loading || !newEventDate} className="btn-primary w-full" data-testid="create-event-btn">
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-                            Create Event & Open Check-In
+                            Create Event
                         </Button>
                     </CardContent>
                 </Card>
 
-                {/* Match Reminder */}
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Bell className="w-5 h-5 text-[#E06040]" />
-                            Send Match Reminder
-                        </CardTitle>
-                        <CardDescription>Post a reminder to the chatroom</CardDescription>
+                        <CardTitle className="flex items-center gap-2"><Bell className="w-5 h-5 text-[#E06040]" />Send Reminder</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleSendReminder} className="space-y-4">
                             <Select value={reminderForm.match_date} onValueChange={(v) => setReminderForm({ ...reminderForm, match_date: v })}>
-                                <SelectTrigger data-testid="reminder-date-select">
-                                    <SelectValue placeholder="Select a Sunday" />
-                                </SelectTrigger>
+                                <SelectTrigger><SelectValue placeholder="Select a Sunday" /></SelectTrigger>
                                 <SelectContent>
                                     {upcomingSundays.map(date => (
                                         <SelectItem key={date} value={date}>
@@ -198,35 +154,27 @@ export function AdminRoundRobinTab() {
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <Textarea
-                                value={reminderForm.message}
-                                onChange={(e) => setReminderForm({ ...reminderForm, message: e.target.value })}
-                                placeholder="e.g., Don't forget! Matches start at 9 AM this Sunday."
-                                className="min-h-20"
-                                data-testid="reminder-message-input"
-                            />
-                            <Button type="submit" className="btn-primary w-full" disabled={loading || !reminderForm.match_date || !reminderForm.message} data-testid="send-reminder-btn">
+                            <Textarea value={reminderForm.message} onChange={(e) => setReminderForm({ ...reminderForm, message: e.target.value })} placeholder="e.g., Matches start at 9 AM this Sunday." className="min-h-20" />
+                            <Button type="submit" className="btn-primary w-full" disabled={loading || !reminderForm.match_date || !reminderForm.message}>
                                 {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bell className="w-4 h-4 mr-2" />}
-                                Post Reminder to Chatroom
+                                Post Reminder
                             </Button>
                         </form>
                     </CardContent>
                 </Card>
 
-                {/* Events List */}
                 {events.length > 0 && (
                     <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] lg:col-span-2">
                         <CardHeader>
                             <CardTitle>Upcoming Events</CardTitle>
-                            <CardDescription>Manage check-ins, approve players, and generate schedules</CardDescription>
+                            <CardDescription>Players auto-confirm up to court capacity. Manage schedules here.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {events.map(ev => {
-                                const available = (ev.checkins || []).filter(c => c.status === 'available');
+                                const confirmed = ev.confirmed_players || [];
+                                const bench = ev.bench_players || [];
                                 const maybe = (ev.checkins || []).filter(c => c.status === 'maybe');
-                                const benchCheckins = (ev.checkins || []).filter(c => c.status === 'bench');
-                                const approved = ev.approved_players || [];
-                                const benchPlayers = ev.bench_players || [];
+                                const maxPlayers = (ev.num_courts || 2) * 4;
                                 const rsvpClosed = ev.rsvp_closed;
                                 return (
                                     <div key={ev.id} className="p-4 border border-gray-100 rounded-lg space-y-3" data-testid={`admin-event-${ev.id}`}>
@@ -236,80 +184,60 @@ export function AdminRoundRobinTab() {
                                                 <p className="text-sm text-gray-500">{new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                {rsvpClosed && <Badge className="bg-red-100 text-red-700"><Lock className="w-3 h-3 mr-1" />RSVP Closed</Badge>}
-                                                <Badge className={ev.status === 'scheduled' ? 'bg-green-100 text-green-800' : ev.status === 'approved' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}>
-                                                    {ev.status}
-                                                </Badge>
-                                                <Button size="sm" variant="ghost" className="text-red-500" onClick={() => handleDeleteEvent(ev)}>
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
+                                                {rsvpClosed && <Badge className="bg-red-100 text-red-700"><Lock className="w-3 h-3 mr-1" />Closed</Badge>}
+                                                {ev.is_admin_overridden && <Badge className="bg-amber-100 text-amber-800">Admin Edited</Badge>}
+                                                <Badge className={ev.status === 'scheduled' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>{ev.status}</Badge>
+                                                <Button size="sm" variant="ghost" className="text-red-500" onClick={() => handleDeleteEvent(ev)}><Trash2 className="w-4 h-4" /></Button>
                                             </div>
                                         </div>
 
-                                        {/* Check-in stats */}
                                         <div className="flex gap-4 text-sm">
-                                            <span className="text-green-700"><Users className="w-4 h-4 inline mr-1" />{available.length} Available</span>
+                                            <span className="text-green-700"><UserCheck className="w-4 h-4 inline mr-1" />{confirmed.length}/{maxPlayers} Confirmed</span>
+                                            <span className="text-orange-700"><Armchair className="w-4 h-4 inline mr-1" />{bench.length} Bench</span>
                                             <span className="text-amber-700">{maybe.length} Maybe</span>
-                                            <span className="text-orange-700"><Armchair className="w-4 h-4 inline mr-1" />{benchCheckins.length} Bench</span>
-                                            <span className="text-blue-700">{approved.length} Approved</span>
                                         </div>
 
-                                        {/* Player names */}
-                                        {available.length > 0 && (
+                                        {confirmed.length > 0 && (
                                             <div className="flex flex-wrap gap-1">
-                                                {available.map(c => <Badge key={c.user_id} className="bg-green-100 text-green-800 text-xs">{c.user_name}</Badge>)}
-                                                {maybe.map(c => <Badge key={c.user_id} className="bg-amber-100 text-amber-800 text-xs">{c.user_name}</Badge>)}
+                                                {confirmed.map((p, i) => (
+                                                    <Badge key={p.id} className={`text-xs ${p.external ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
+                                                        {i+1}. {p.name}{p.external ? ' (guest)' : ''}
+                                                    </Badge>
+                                                ))}
                                             </div>
                                         )}
-
-                                        {/* Bench players */}
-                                        {benchPlayers.length > 0 && (
+                                        {bench.length > 0 && (
                                             <div className="flex flex-wrap gap-1">
                                                 <span className="text-xs text-orange-600 mr-1">Bench:</span>
-                                                {benchPlayers.map((p, i) => <Badge key={p.id || i} className="bg-orange-100 text-orange-800 text-xs">#{i+1} {p.name}</Badge>)}
+                                                {bench.map((p, i) => <Badge key={p.id || i} className="bg-orange-100 text-orange-800 text-xs">#{i+1} {p.name}</Badge>)}
                                             </div>
                                         )}
 
-                                        {/* Actions */}
                                         <div className="flex flex-wrap gap-2">
-                                            {/* Close/Reopen RSVP */}
                                             {ev.status === 'open' && !rsvpClosed && (
-                                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleCloseRsvp(ev)} data-testid={`close-rsvp-${ev.id}`}>
+                                                <Button size="sm" variant="outline" className="text-red-600 border-red-200" onClick={() => handleCloseRsvp(ev)}>
                                                     <Lock className="w-4 h-4 mr-1" /> Close RSVP
                                                 </Button>
                                             )}
                                             {rsvpClosed && ev.status === 'open' && (
-                                                <Button size="sm" variant="outline" className="text-green-600 border-green-200 hover:bg-green-50" onClick={() => handleReopenRsvp(ev)} data-testid={`reopen-rsvp-${ev.id}`}>
-                                                    <Unlock className="w-3 h-3 mr-1" /> Reopen RSVP
+                                                <Button size="sm" variant="outline" className="text-green-600 border-green-200" onClick={() => handleReopenRsvp(ev)}>
+                                                    <Unlock className="w-3 h-3 mr-1" /> Reopen
                                                 </Button>
                                             )}
-                                            {ev.status === 'open' && available.length > 0 && (
-                                                <Button size="sm" className="bg-[#0051BA]" onClick={() => handleApproveAll(ev)} disabled={loading} data-testid={`approve-${ev.id}`}>
-                                                    Approve Available ({available.length})
-                                                </Button>
-                                            )}
-                                            {ev.status === 'approved' && approved.length >= 4 && (
-                                                <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleGenerate(ev)} disabled={loading} data-testid={`generate-${ev.id}`}>
-                                                    <Shuffle className="w-4 h-4 mr-1" />Generate Doubles Schedule
+                                            {confirmed.length >= 4 && (
+                                                <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleGenerate(ev)} disabled={loading}>
+                                                    <Shuffle className="w-4 h-4 mr-1" />{ev.generated_schedule ? 'Regenerate' : 'Generate'} Schedule
                                                 </Button>
                                             )}
                                         </div>
 
-                                        {/* Add external player */}
                                         <div className="flex gap-2 items-center pt-2 border-t border-gray-50">
-                                            <Input
-                                                placeholder="Add non-member player"
-                                                value={extNames[ev.id] || ''}
-                                                onChange={e => setExtNames(prev => ({ ...prev, [ev.id]: e.target.value }))}
-                                                className="h-8 text-sm flex-1"
-                                                data-testid={`ext-name-${ev.id}`}
-                                            />
-                                            <Button size="sm" variant="outline" onClick={() => handleAddExternal(ev)} disabled={!(extNames[ev.id] || '').trim()} data-testid={`add-ext-${ev.id}`}>
+                                            <Input placeholder="Add non-member" value={extNames[ev.id] || ''} onChange={e => setExtNames(prev => ({ ...prev, [ev.id]: e.target.value }))} className="h-8 text-sm flex-1" />
+                                            <Button size="sm" variant="outline" onClick={() => handleAddExternal(ev)} disabled={!(extNames[ev.id] || '').trim()}>
                                                 <UserPlus className="w-4 h-4" />
                                             </Button>
                                         </div>
 
-                                        {/* Generated schedule preview */}
                                         {ev.generated_schedule && (
                                             <div className="bg-green-50 rounded-lg p-3 text-sm">
                                                 <p className="font-medium text-green-800 mb-1">Schedule Generated ({ev.generated_schedule.length} rounds)</p>
