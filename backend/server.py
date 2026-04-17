@@ -2617,6 +2617,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def seed_admin():
+    """Create admin account on startup if it doesn't exist"""
+    existing = await db.users.find_one({"email": "admin@tennis.com"})
+    if not existing:
+        admin_user = {
+            "id": str(uuid.uuid4()),
+            "email": "admin@tennis.com",
+            "password": hash_password("admin123"),
+            "name": "Admin",
+            "role": "admin",
+            "phone": None,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.users.insert_one(admin_user)
+        logger.info("Admin account seeded: admin@tennis.com")
+    else:
+        logger.info("Admin account already exists")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
