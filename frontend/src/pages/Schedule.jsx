@@ -607,9 +607,9 @@ export default function Schedule() {
                                                     <EditableScheduleDisplay event={event} onRefresh={refreshEvents} isAdmin={isAdmin} />
                                                 </div>
                                                 <div className="md:w-56 shrink-0">
-                                                    {user && event.status !== 'scheduled' ? (
+                                                    {user && !isAdmin && event.status !== 'scheduled' ? (
                                                         <CheckInButton eventId={event.id} event={event} onUpdate={refreshEvents} />
-                                                    ) : event.status === 'scheduled' && user && event.confirmed_players?.some(p => p.id === user.id) ? (
+                                                    ) : event.status === 'scheduled' && user && !isAdmin && event.confirmed_players?.some(p => p.id === user.id) ? (
                                                         <div>
                                                             <Badge className="bg-green-100 text-green-800 mb-2">You're playing!</Badge>
                                                             <Button size="sm" variant="outline" className="text-red-500 w-full" onClick={async () => { await cancelPlayerSpot(event.id); refreshEvents(); }} data-testid="cancel-spot-btn">
@@ -618,6 +618,8 @@ export default function Schedule() {
                                                         </div>
                                                     ) : !user ? (
                                                         <p className="text-sm text-gray-500">Log in to RSVP</p>
+                                                    ) : isAdmin ? (
+                                                        <p className="text-xs text-gray-400 italic">Admin controls below</p>
                                                     ) : null}
                                                 </div>
                                             </div>
