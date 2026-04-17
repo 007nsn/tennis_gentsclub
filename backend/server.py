@@ -30,6 +30,7 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'tennis-buddies-secret')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://doubles-ladder.preview.emergentagent.com')
 
 # Initialize Resend
 if RESEND_API_KEY:
@@ -814,7 +815,7 @@ async def submit_match(match_data: MatchCreate, user: dict = Depends(get_current
                 "Match Result Pending Approval",
                 f"{user['name']} submitted a match result. Please review and approve/reject.",
                 "Review Match",
-                "https://doubles-ladder.preview.emergentagent.com/admin"
+                f"{FRONTEND_URL}/admin"
             )
         )
     
@@ -864,7 +865,7 @@ async def approve_match(match_id: str, user: dict = Depends(get_admin_user)):
                 "Your Match Result was Approved!",
                 "Your submitted match result has been approved and the ladder has been updated.",
                 "View Ladder",
-                "https://doubles-ladder.preview.emergentagent.com/solo-ladder"
+                f"{FRONTEND_URL}/solo-ladder"
             )
         )
     
@@ -888,7 +889,7 @@ async def reject_match(match_id: str, user: dict = Depends(get_admin_user)):
                 "Match Result Rejected",
                 "Your submitted match result was rejected. Please contact the admin if you have questions.",
                 "Contact Admin",
-                "https://doubles-ladder.preview.emergentagent.com/messages"
+                f"{FRONTEND_URL}/messages"
             )
         )
     
@@ -1014,7 +1015,7 @@ async def send_message(msg_data: MessageCreate, user: dict = Depends(get_current
                     "You have a new message",
                     f"{user['name']} sent you a message: \"{msg_data.content[:100]}...\"",
                     "View Messages",
-                    "https://doubles-ladder.preview.emergentagent.com/messages"
+                    f"{FRONTEND_URL}/messages"
                 )
             )
     
@@ -1405,7 +1406,7 @@ async def send_availability_reminder(date: str, admin: dict = Depends(get_admin_
                     "Sunday Tennis - Are You In?",
                     f"Please confirm your availability for the Sunday doubles session on {date}. We need to know who's playing to set up the round robin matches.",
                     "Confirm Availability",
-                    "https://doubles-ladder.preview.emergentagent.com/availability"
+                    f"{FRONTEND_URL}/availability"
                 )
             )
             sent_count += 1
@@ -2591,6 +2592,17 @@ async def clear_content(admin: dict = Depends(get_admin_user)):
     await db.strategy_chats.delete_many({})
     await db.chat_history.delete_many({})
     return {"message": f"Cleared {del_articles.deleted_count} articles, scout reports, and strategy chats"}
+
+
+# ============ HEALTH CHECK ============
+
+@api_router.get("/health")
+async def api_health():
+    return {"status": "ok"}
+
+@app.get("/health")
+async def root_health():
+    return {"status": "ok"}
 
 
 # ============ APP SETUP ============
