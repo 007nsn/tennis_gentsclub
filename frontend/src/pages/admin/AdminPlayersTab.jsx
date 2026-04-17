@@ -4,9 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../..
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
-import { Edit2 } from 'lucide-react';
+import { Edit2, Trash2 } from 'lucide-react';
 
-export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, onUpdateUser }) {
+export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, onUpdateUser, onClearUsers }) {
     const [editingPlayer, setEditingPlayer] = useState(null);
     const [editingUser, setEditingUser] = useState(null);
 
@@ -82,6 +82,13 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                         </div>
                     </CardContent>
                 </Card>
+                {onClearUsers && (
+                    <div className="lg:col-span-2 pt-2">
+                        <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50" onClick={() => { if (window.confirm('Delete all users except admin?')) onClearUsers(); }} data-testid="clear-users-btn">
+                            <Trash2 className="w-3 h-3 mr-1" /> Clear All Users (except admin)
+                        </Button>
+                    </div>
+                )}
             </div>
         </TabsContent>
     );

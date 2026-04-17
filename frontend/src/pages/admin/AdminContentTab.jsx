@@ -9,7 +9,7 @@ import { BookOpen, Plus, Trash2, Video, FileText, Image, ClipboardList, Upload, 
 import { uploadFile } from '../../lib/api';
 import { toast } from 'sonner';
 
-export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteArticle, onSeedContent }) {
+export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteArticle, onSeedContent, onClearContent }) {
     const [articleForm, setArticleForm] = useState({
         title: '', content: '', category: 'technique', content_type: 'article',
         video_url: '', image_url: '', file_path: '', file_name: '', file_content_type: ''
@@ -194,6 +194,13 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                         </div>
                     </CardContent>
                 </Card>
+                {onClearContent && (
+                    <div className="lg:col-span-2 pt-2">
+                        <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50" onClick={() => { if (window.confirm('Delete all articles, scout reports & strategy chats?')) onClearContent(); }} data-testid="clear-content-btn">
+                            <Trash2 className="w-3 h-3 mr-1" /> Clear All Content
+                        </Button>
+                    </div>
+                )}
             </div>
         </TabsContent>
     );

@@ -100,6 +100,7 @@ export const getUnreadCount = () => api.get('/messages/unread-count');
 // Chatroom (Group)
 export const sendChatroomMessage = (content) => api.post('/chatroom', { content });
 export const getChatroomMessages = (limit = 100) => api.get('/chatroom', { params: { limit } });
+export const deleteChatroomMessage = (id) => api.delete(`/chatroom/${id}`);
 
 // Match History & Stats
 export const getMatchHistory = (playerId) => api.get('/match-history', { params: { player_id: playerId } });

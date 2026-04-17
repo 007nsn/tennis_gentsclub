@@ -68,9 +68,12 @@ export default function Admin() {
                     pendingMatches={data.pendingMatches}
                     onApprove={data.handleApproveMatch}
                     onReject={data.handleRejectMatch}
+                    onClearMatches={data.handleClearMatches}
                 />
 
-                <AdminRoundRobinTab />
+                <AdminRoundRobinTab
+                    onClearEvents={data.handleClearEvents}
+                />
 
                 <AdminPlayersTab
                     soloPlayers={data.soloPlayers}
@@ -78,6 +81,7 @@ export default function Admin() {
                     loading={data.loading}
                     onUpdatePlayer={data.handleUpdatePlayer}
                     onUpdateUser={data.handleUpdateUser}
+                    onClearUsers={data.handleClearUsers}
                 />
 
                 <AdminContentTab
@@ -86,6 +90,7 @@ export default function Admin() {
                     onCreateArticle={data.handleCreateArticle}
                     onDeleteArticle={data.handleDeleteArticle}
                     onSeedContent={data.handleSeedContent}
+                    onClearContent={data.handleClearContent}
                 />
 
                 <AdminAnnouncementsTab
@@ -93,6 +98,9 @@ export default function Admin() {
                     loading={data.loading}
                     onCreateAnnouncement={data.handleCreateAnnouncement}
                     onDeleteAnnouncement={data.handleDeleteAnnouncement}
+                    chatMessages={data.chatMessages}
+                    onDeleteChatMessage={data.handleDeleteChatMessage}
+                    onClearChat={data.handleClearChat}
                 />
 
                 <AdminSettingsTab

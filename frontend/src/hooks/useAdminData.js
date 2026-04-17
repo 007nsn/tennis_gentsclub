@@ -9,7 +9,9 @@ import {
     getSoloLadder, updateSoloPlayer,
     getAvailability, getUpcomingSundays,
     getSettings, updateSettings, seedSampleContent,
-    createMatchReminder
+    createMatchReminder,
+    clearUsers, clearEvents, clearMatches, clearChat, clearContent,
+    getChatroomMessages, deleteChatroomMessage
 } from '../lib/api';
 import { toast } from 'sonner';
 
@@ -30,6 +32,7 @@ export function useAdminData() {
         match_duration_minutes: 30,
         default_start_time: '09:00'
     });
+    const [chatMessages, setChatMessages] = useState([]);
 
     const loadAllData = useCallback(async () => {
         try {
@@ -53,6 +56,12 @@ export function useAdminData() {
             setSoloPlayers(soloRes.data);
             setSundays(sundaysRes.data.sundays);
             setSettings(settingsRes.data);
+
+            // Load chat messages for admin
+            try {
+                const chatRes = await getChatroomMessages(200);
+                setChatMessages(chatRes.data);
+            } catch (e) { /* not logged in or no messages */ }
 
             const availMap = {};
             for (const date of sundaysRes.data.sundays) {
@@ -217,6 +226,57 @@ export function useAdminData() {
         loadAllData();
     }, [loadAllData]);
 
+    const handleDeleteChatMessage = useCallback(async (msgId) => {
+        try {
+            await deleteChatroomMessage(msgId);
+            setChatMessages(prev => prev.filter(m => m.id !== msgId));
+            toast.success('Message deleted');
+        } catch (error) {
+            toast.error('Failed to delete message');
+        }
+    }, []);
+
+    const handleClearUsers = useCallback(async () => {
+        try {
+            const res = await clearUsers();
+            toast.success(res.data.message);
+            loadAllData();
+        } catch (e) { toast.error('Failed'); }
+    }, [loadAllData]);
+
+    const handleClearEvents = useCallback(async () => {
+        try {
+            const res = await clearEvents();
+            toast.success(res.data.message);
+            loadAllData();
+        } catch (e) { toast.error('Failed'); }
+    }, [loadAllData]);
+
+    const handleClearMatches = useCallback(async () => {
+        try {
+            const res = await clearMatches();
+            toast.success(res.data.message);
+            loadAllData();
+        } catch (e) { toast.error('Failed'); }
+    }, [loadAllData]);
+
+    const handleClearChat = useCallback(async () => {
+        try {
+            const res = await clearChat();
+            toast.success(res.data.message);
+            setChatMessages([]);
+            loadAllData();
+        } catch (e) { toast.error('Failed'); }
+    }, [loadAllData]);
+
+    const handleClearContent = useCallback(async () => {
+        try {
+            const res = await clearContent();
+            toast.success(res.data.message);
+            loadAllData();
+        } catch (e) { toast.error('Failed'); }
+    }, [loadAllData]);
+
     return {
         loading,
         pendingMatches,
@@ -229,6 +289,7 @@ export function useAdminData() {
         sundays,
         availability,
         settings,
+        chatMessages,
         setSettings,
         loadAllData,
         handleApproveMatch,
@@ -245,5 +306,11 @@ export function useAdminData() {
         handleDeleteTeam,
         handleDeleteArticle,
         handleDeleteAnnouncement,
+        handleDeleteChatMessage,
+        handleClearUsers,
+        handleClearEvents,
+        handleClearMatches,
+        handleClearChat,
+        handleClearContent,
     };
 }

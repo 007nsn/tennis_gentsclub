@@ -1164,6 +1164,14 @@ async def get_chatroom_messages(limit: int = 100, user: dict = Depends(get_curre
     messages = await db.chatroom.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
     return [ChatroomMessageResponse(**m) for m in reversed(messages)]
 
+@api_router.delete("/chatroom/{msg_id}")
+async def delete_chatroom_message(msg_id: str, admin: dict = Depends(get_admin_user)):
+    """Admin deletes a single chatroom message"""
+    result = await db.chatroom.delete_one({"id": msg_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"message": "Chat message deleted"}
+
 # ============ MATCH HISTORY & PLAYER STATS ============
 
 @api_router.get("/match-history")

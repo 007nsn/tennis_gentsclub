@@ -5,9 +5,9 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { clearTestData, clearUsers, clearEvents, clearMatches, clearChat, clearContent } from '../../lib/api';
+import { clearTestData } from '../../lib/api';
 import { toast } from 'sonner';
-import { Trash2, Loader2, AlertTriangle, Clock, Users, Calendar, Trophy, MessageCircle, BookOpen } from 'lucide-react';
+import { Trash2, Loader2, AlertTriangle, Clock } from 'lucide-react';
 
 const DAY_OPTIONS = [
     { value: '0', label: 'Monday' },
@@ -24,60 +24,6 @@ const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
     label: `${i === 0 ? '12' : i > 12 ? i - 12 : i}:00 ${i < 12 ? 'AM' : 'PM'}`
 }));
 
-function ClearButton({ label, icon: Icon, onClear, confirmText }) {
-    const [confirming, setConfirming] = useState(false);
-    const [clearing, setClearing] = useState(false);
-
-    const handleClear = async () => {
-        setClearing(true);
-        try {
-            const res = await onClear();
-            toast.success(res.data.message);
-            setConfirming(false);
-        } catch (e) {
-            toast.error('Failed to clear');
-        } finally {
-            setClearing(false);
-        }
-    };
-
-    if (confirming) {
-        return (
-            <div className="flex items-center gap-2">
-                <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={handleClear}
-                    disabled={clearing}
-                    data-testid={`confirm-clear-${label.toLowerCase().replace(/\s/g, '-')}`}
-                >
-                    {clearing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
-                    Confirm
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div className="flex items-center gap-2 text-sm">
-                <Icon className="w-4 h-4 text-gray-400" />
-                <span>{label}</span>
-            </div>
-            <Button
-                size="sm"
-                variant="outline"
-                className="text-red-500 border-red-200 hover:bg-red-50 h-7 text-xs"
-                onClick={() => setConfirming(true)}
-                data-testid={`clear-${label.toLowerCase().replace(/\s/g, '-')}`}
-            >
-                <Trash2 className="w-3 h-3 mr-1" /> Clear
-            </Button>
-        </div>
-    );
-}
-
 export function AdminSettingsTab({ settings, onSettingsChange, onSave }) {
     const [clearingAll, setClearingAll] = useState(false);
     const [confirmClearAll, setConfirmClearAll] = useState(false);
@@ -90,7 +36,7 @@ export function AdminSettingsTab({ settings, onSettingsChange, onSave }) {
             toast.success(`Cleared: ${d.users} users, ${d.schedules} schedules, ${d.weekly_events} events, ${d.matches} matches, ${d.chatroom} messages`);
             setConfirmClearAll(false);
         } catch (e) {
-            toast.error('Failed to clear test data');
+            toast.error('Failed to clear');
         } finally {
             setClearingAll(false);
         }
@@ -137,34 +83,16 @@ export function AdminSettingsTab({ settings, onSettingsChange, onSave }) {
                     <CardContent className="space-y-4">
                         <div className="space-y-2">
                             <Label>RSVP Opens On</Label>
-                            <Select
-                                value={String(settings.rsvp_open_day ?? 2)}
-                                onValueChange={(v) => onSettingsChange({ ...settings, rsvp_open_day: parseInt(v) })}
-                            >
-                                <SelectTrigger data-testid="rsvp-day-select">
-                                    <SelectValue placeholder="Select day" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {DAY_OPTIONS.map(opt => (
-                                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
+                            <Select value={String(settings.rsvp_open_day ?? 2)} onValueChange={(v) => onSettingsChange({ ...settings, rsvp_open_day: parseInt(v) })}>
+                                <SelectTrigger data-testid="rsvp-day-select"><SelectValue placeholder="Select day" /></SelectTrigger>
+                                <SelectContent>{DAY_OPTIONS.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-2">
                             <Label>RSVP Opens At</Label>
-                            <Select
-                                value={String(settings.rsvp_open_hour ?? 7)}
-                                onValueChange={(v) => onSettingsChange({ ...settings, rsvp_open_hour: parseInt(v) })}
-                            >
-                                <SelectTrigger data-testid="rsvp-hour-select">
-                                    <SelectValue placeholder="Select time" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {HOUR_OPTIONS.map(opt => (
-                                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
+                            <Select value={String(settings.rsvp_open_hour ?? 7)} onValueChange={(v) => onSettingsChange({ ...settings, rsvp_open_hour: parseInt(v) })}>
+                                <SelectTrigger data-testid="rsvp-hour-select"><SelectValue placeholder="Select time" /></SelectTrigger>
+                                <SelectContent>{HOUR_OPTIONS.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
                             </Select>
                         </div>
                         <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
@@ -175,51 +103,32 @@ export function AdminSettingsTab({ settings, onSettingsChange, onSave }) {
                     </CardContent>
                 </Card>
 
-                {/* Data Management - Individual Controls */}
+                {/* Nuclear Option */}
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] border-l-4 border-l-red-400 lg:col-span-2">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-red-600">
                             <AlertTriangle className="w-5 h-5" />
-                            Data Management
+                            Reset Everything
                         </CardTitle>
-                        <CardDescription>Clear specific data categories or everything at once. Your admin account is always preserved.</CardDescription>
+                        <CardDescription>Clears ALL data at once (users, events, matches, messages, content). Admin account preserved. Use individual tab controls to delete specific items.</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-1">
-                        <ClearButton label="All users (except admin)" icon={Users} onClear={clearUsers} />
-                        <ClearButton label="Schedules, weekly events & check-ins" icon={Calendar} onClear={clearEvents} />
-                        <ClearButton label="Matches, teams & solo ladder" icon={Trophy} onClear={clearMatches} />
-                        <ClearButton label="Chatroom messages & announcements" icon={MessageCircle} onClear={clearChat} />
-                        <ClearButton label="Articles, scout reports & strategy chats" icon={BookOpen} onClear={clearContent} />
-
-                        <div className="pt-4 mt-4 border-t border-gray-200">
-                            {confirmClearAll ? (
-                                <div className="space-y-2">
-                                    <p className="text-sm font-bold text-red-600">Delete ALL data? This cannot be undone.</p>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="destructive"
-                                            onClick={handleClearAll}
-                                            disabled={clearingAll}
-                                            data-testid="confirm-clear-all-btn"
-                                        >
-                                            {clearingAll ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
-                                            Yes, Clear Everything
-                                        </Button>
-                                        <Button variant="ghost" onClick={() => setConfirmClearAll(false)}>Cancel</Button>
-                                    </div>
+                    <CardContent>
+                        {confirmClearAll ? (
+                            <div className="space-y-2">
+                                <p className="text-sm font-bold text-red-600">Delete ALL data? This cannot be undone.</p>
+                                <div className="flex gap-2">
+                                    <Button variant="destructive" onClick={handleClearAll} disabled={clearingAll} data-testid="confirm-clear-all-btn">
+                                        {clearingAll ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                                        Yes, Clear Everything
+                                    </Button>
+                                    <Button variant="ghost" onClick={() => setConfirmClearAll(false)}>Cancel</Button>
                                 </div>
-                            ) : (
-                                <Button
-                                    variant="outline"
-                                    className="text-red-600 border-red-300 hover:bg-red-50 w-full"
-                                    onClick={() => setConfirmClearAll(true)}
-                                    data-testid="clear-all-btn"
-                                >
-                                    <Trash2 className="w-4 h-4 mr-1" />
-                                    Clear All Data At Once
-                                </Button>
-                            )}
-                        </div>
+                            </div>
+                        ) : (
+                            <Button variant="outline" className="text-red-600 border-red-300 hover:bg-red-50 w-full" onClick={() => setConfirmClearAll(true)} data-testid="clear-all-btn">
+                                <Trash2 className="w-4 h-4 mr-1" /> Clear All Data At Once
+                            </Button>
+                        )}
                     </CardContent>
                 </Card>
             </div>

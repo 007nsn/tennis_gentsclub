@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 const getConfirmed = (ev) => ev.confirmed_players || ev.approved_players || [];
 const getBench = (ev) => ev.bench_players || ev.waitlist_players || [];
 
-export function AdminRoundRobinTab() {
+export function AdminRoundRobinTab({ onClearEvents }) {
     const [events, setEvents] = useState([]);
     const [loading, setLoading] = useState(false);
     const [newEventDate, setNewEventDate] = useState('');
@@ -257,6 +257,13 @@ export function AdminRoundRobinTab() {
                             })}
                         </CardContent>
                     </Card>
+                )}
+                {onClearEvents && (
+                    <div className="lg:col-span-2 pt-2">
+                        <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50" onClick={() => { if (window.confirm('Delete all events, schedules & check-ins?')) onClearEvents(); }} data-testid="clear-events-btn">
+                            <Trash2 className="w-3 h-3 mr-1" /> Clear All Events & Schedules
+                        </Button>
+                    </div>
                 )}
             </div>
         </TabsContent>

@@ -2,9 +2,9 @@ import { TabsContent } from '../../components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
-import { Check, X } from 'lucide-react';
+import { Check, X, Trash2 } from 'lucide-react';
 
-export function AdminMatchesTab({ pendingMatches, onApprove, onReject }) {
+export function AdminMatchesTab({ pendingMatches, onApprove, onReject, onClearMatches }) {
     return (
         <TabsContent value="matches">
             <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
@@ -47,6 +47,13 @@ export function AdminMatchesTab({ pendingMatches, onApprove, onReject }) {
                     )}
                 </CardContent>
             </Card>
+            {onClearMatches && (
+                <div className="mt-4">
+                    <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50" onClick={() => { if (window.confirm('Delete all matches, teams & solo ladder entries?')) onClearMatches(); }} data-testid="clear-matches-btn">
+                        <Trash2 className="w-3 h-3 mr-1" /> Clear All Matches & Teams
+                    </Button>
+                </div>
+            )}
         </TabsContent>
     );
 }
