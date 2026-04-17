@@ -560,10 +560,15 @@ async def register(user_data: UserCreate):
 @api_router.post("/auth/login", response_model=dict)
 async def login(credentials: UserLogin):
     user = await db.users.find_one({"email": credentials.email}, {"_id": 0})
-    if not user or not verify_password(credentials.password, user["password"]):
+    if not user:
+        logger.warning(f"Login failed: no user found for {credentials.email}")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not verify_password(credentials.password, user["password"]):
+        logger.warning(f"Login failed: wrong password for {credentials.email}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     token = create_token(user["id"], user["role"])
+    logger.info(f"Login success: {credentials.email}")
     response = JSONResponse(content={"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}})
     response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="lax", max_age=86400 * 7)
     return response
@@ -2619,35 +2624,29 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def seed_admin():
-    """Create or fix admin account on startup"""
+    """Create or fix admin account on startup - always ensures correct password"""
     try:
         existing = await db.users.find_one({"email": "admin@tennis.com"})
+        new_hash = hash_password("admin123")
         if not existing:
             admin_user = {
                 "id": str(uuid.uuid4()),
                 "email": "admin@tennis.com",
-                "password": hash_password("admin123"),
+                "password": new_hash,
                 "name": "Admin",
                 "role": "admin",
                 "phone": None,
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             await db.users.insert_one(admin_user)
-            logger.info("Admin account seeded: admin@tennis.com")
+            logger.info("Admin account created")
         else:
-            needs_fix = False
-            try:
-                needs_fix = not verify_password("admin123", existing.get("password", ""))
-            except Exception:
-                needs_fix = True
-            if needs_fix or existing.get("role") != "admin":
-                await db.users.update_one(
-                    {"email": "admin@tennis.com"},
-                    {"$set": {"password": hash_password("admin123"), "role": "admin", "name": "Admin"}}
-                )
-                logger.info("Admin account password/role fixed")
-            else:
-                logger.info("Admin account valid")
+            # Always reset password to ensure it works
+            await db.users.update_one(
+                {"email": "admin@tennis.com"},
+                {"$set": {"password": new_hash, "role": "admin", "name": "Admin"}}
+            )
+            logger.info("Admin account password refreshed")
     except Exception as e:
         logger.error(f"Admin seed error: {e}")
 
