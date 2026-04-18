@@ -81,36 +81,24 @@ agenthub/agents/youtube/db
 android-sdk/
 -e 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
 .credentials
 -e 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
 .credentials
 -e 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
 .credentials
 -e 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
@@ -118,9 +106,6 @@ credentials.json
 frontend/node_modules/.cache/default-development/12.pack
 -e 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
@@ -129,9 +114,6 @@ frontend/node_modules/.cache/default-development/5.pack
 frontend/node_modules/.cache/default-development/9.pack
 -e 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
@@ -139,9 +121,6 @@ credentials.json
 frontend/node_modules/.cache/default-development/11.pack
 -e 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
@@ -149,9 +128,6 @@ credentials.json
 frontend/node_modules/.cache/default-development/10.pack
 -e 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
