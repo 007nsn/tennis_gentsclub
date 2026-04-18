@@ -18,11 +18,11 @@ import ChatWidget from './ChatWidget';
 const navLinks = [
     { path: '/', label: 'Home', icon: Home },
     { path: '/schedule', label: 'Schedule', icon: Calendar },
-    { path: '/season-standings', label: 'Standings', icon: Award },
-    { path: '/solo-ladder', label: 'Ladder', icon: Trophy },
-    { path: '/partnerships', label: 'Duos', icon: Handshake },
+    { path: '/season-standings', label: 'Standings', icon: Award, authRequired: true },
+    { path: '/solo-ladder', label: 'Ladder', icon: Trophy, authRequired: true },
+    { path: '/partnerships', label: 'Duos', icon: Handshake, authRequired: true },
     { path: '/head-to-head', label: 'H2H', icon: Swords, authRequired: true },
-    { path: '/education', label: 'Improve', icon: BookOpen },
+    { path: '/education', label: 'Improve', icon: BookOpen, authRequired: true },
     { path: '/opponent-scout', label: 'Scout', icon: Target, authRequired: true },
     { path: '/strategy-bot', label: 'AI Coach', icon: Bot, authRequired: true },
     { path: '/chatroom', label: 'Chat', icon: MessageCircle, authRequired: true },
@@ -214,8 +214,10 @@ export const Layout = ({ children }) => {
                             <h4 className="font-['Barlow_Condensed'] font-bold uppercase tracking-wide mb-4">Quick Links</h4>
                             <ul className="space-y-2 text-gray-400 text-sm">
                                 <li><Link to="/schedule" className="hover:text-white transition-colors">Schedule</Link></li>
-                                <li><Link to="/partnerships" className="hover:text-white transition-colors">Best Partnerships</Link></li>
-                                <li><Link to="/education" className="hover:text-white transition-colors">Doubles Tips</Link></li>
+                                {user && <li><Link to="/partnerships" className="hover:text-white transition-colors">Best Partnerships</Link></li>}
+                                {user && <li><Link to="/education" className="hover:text-white transition-colors">Doubles Tips</Link></li>}
+                                {!user && <li><Link to="/login" className="hover:text-white transition-colors">Log In</Link></li>}
+                                {!user && <li><Link to="/register" className="hover:text-white transition-colors">Join Club</Link></li>}
                             </ul>
                         </div>
                         <div>
