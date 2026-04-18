@@ -172,20 +172,32 @@ function PlayersList({ event, onUpdate }) {
                     )}
                 </div>
             )}
-            {bench.length > 0 && (
-                <div className="mb-3" data-testid="bench-players-list">
-                    <p className="text-xs font-medium text-gray-500 mb-1 flex items-center gap-1">
-                        <Armchair className="w-3 h-3" /> Bench ({bench.length}):
-                    </p>
-                    <div className="flex flex-wrap gap-1">
+
+            {/* The Bench - always visible */}
+            <div className="mb-3 p-3 bg-orange-50 rounded-lg border border-orange-100" data-testid="the-bench-section">
+                <p className="text-sm font-bold text-orange-800 mb-2 flex items-center gap-2">
+                    <Armchair className="w-4 h-4" />
+                    The Bench
+                    {bench.length > 0 && <Badge className="bg-orange-200 text-orange-800 text-[10px]">{bench.length} waiting</Badge>}
+                </p>
+                {bench.length > 0 ? (
+                    <div className="space-y-1">
                         {bench.map((p, i) => (
-                            <Badge key={p.id || i} variant="outline" className="text-xs border-orange-300 text-orange-700">
-                                #{i + 1} {p.name}
-                            </Badge>
+                            <div key={p.id || i} className="flex items-center gap-2 text-sm" data-testid={`bench-player-${i+1}`}>
+                                <span className="w-6 h-6 rounded-full bg-orange-200 text-orange-800 flex items-center justify-center text-xs font-bold shrink-0">{i + 1}</span>
+                                <span className="text-orange-900">{p.name}</span>
+                                {p.timestamp && (
+                                    <span className="text-[10px] text-orange-400 ml-auto">
+                                        {new Date(p.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                    </span>
+                                )}
+                            </div>
                         ))}
                     </div>
-                </div>
-            )}
+                ) : (
+                    <p className="text-xs text-orange-400 italic">No one on the bench</p>
+                )}
+            </div>
         </div>
     );
 }

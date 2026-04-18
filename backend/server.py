@@ -1102,7 +1102,7 @@ async def push_status(user: dict = Depends(get_current_user)):
     sub = await db.push_subscriptions.find_one({"user_id": user["id"]}, {"_id": 0})
     return {"subscribed": sub is not None}
 
-async def send_push_notification(user_id: str, title: str, body: str, url: str = "/schedule"):
+async def send_push_notification(user_id: str, title: str, body: str, url: str = "/schedule", urgency: str = "high"):
     """Send a push notification to a specific user"""
     if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
         logger.warning("VAPID keys not configured, skipping push notification")
@@ -1114,18 +1114,26 @@ async def send_push_notification(user_id: str, title: str, body: str, url: str =
     try:
         from pywebpush import webpush
         import json
-        payload = json.dumps({"title": title, "body": body, "url": url})
+        payload = json.dumps({"title": title, "body": body, "url": url, "urgency": urgency})
         webpush(
             subscription_info=subscription,
             data=payload,
             vapid_private_key=VAPID_PRIVATE_KEY,
             vapid_claims=VAPID_CLAIMS
         )
-        logger.info(f"Push sent to {sub_doc.get('user_name', user_id)}")
+        logger.info(f"Push sent to {sub_doc.get('user_name', user_id)} (urgency={urgency})")
     except Exception as e:
         logger.error(f"Push notification failed for {user_id}: {e}")
         if "410" in str(e) or "404" in str(e):
             await db.push_subscriptions.delete_one({"user_id": user_id})
+
+async def send_push_to_roster(player_ids: list, title: str, body: str, url: str = "/schedule", urgency: str = "normal", exclude_ids: list = None):
+    """Send push notification to all opted-in players in a roster"""
+    exclude = set(exclude_ids or [])
+    for pid in player_ids:
+        if pid in exclude or pid.startswith("ext-"):
+            continue
+        asyncio.create_task(send_push_notification(pid, title, body, url, urgency))
 
 # ============ FILE UPLOAD & SERVE ============
 
@@ -2490,12 +2498,23 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
                 {"event_id": data.event_id, "user_id": promoted["id"]},
                 {"$set": {"status": "confirmed", "updated_at": now_ts}}
             )
-            # Push notification to promoted player
+            # Push notification to promoted player (LOUD)
             asyncio.create_task(send_push_notification(
                 promoted["id"],
                 "You're In!",
                 f"A spot opened up — you've been promoted from the bench for {event.get('title', 'Sunday Doubles')}!",
-                "/schedule"
+                "/schedule",
+                urgency="high"
+            ))
+            # Silent broadcast to all confirmed (group update)
+            all_confirmed_ids = [p["id"] for p in confirmed]
+            asyncio.create_task(send_push_to_roster(
+                all_confirmed_ids,
+                "Match Update",
+                f"{promoted['name']} has joined the Sunday roster. View the updated schedule.",
+                "/schedule",
+                urgency="low",
+                exclude_ids=[promoted["id"]]
             ))
 
     await db.weekly_events.update_one({"id": data.event_id}, {"$set": {
@@ -2612,7 +2631,17 @@ async def cancel_player(event_id: str, user: dict = Depends(get_current_user)):
             promoted["id"],
             "You're In!",
             f"A spot opened up — you've been promoted from the bench for {event.get('title', 'Sunday Doubles')}!",
-            "/schedule"
+            "/schedule",
+            urgency="high"
+        ))
+        all_confirmed_ids = [p["id"] for p in confirmed]
+        asyncio.create_task(send_push_to_roster(
+            all_confirmed_ids,
+            "Match Update",
+            f"{promoted['name']} has joined the Sunday roster. View the updated schedule.",
+            "/schedule",
+            urgency="low",
+            exclude_ids=[promoted["id"]]
         ))
 
     await db.weekly_events.update_one({"id": event_id}, {"$set": {
@@ -2682,6 +2711,16 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
         "created_at": datetime.now(timezone.utc).isoformat(),
         "is_schedule": True
     })
+
+    # Broadcast push notification to all confirmed players
+    roster_ids = [p["id"] for p in confirmed]
+    asyncio.create_task(send_push_to_roster(
+        roster_ids,
+        "Sunday Round Robin is Set!",
+        f"Your court assignments and times are now live for {event.get('title', 'Sunday Doubles')}. Check the schedule!",
+        "/schedule",
+        urgency="normal"
+    ))
 
     return {"message": f"Schedule generated: {len(rounds)} rounds", "rounds": rounds}
 
@@ -2799,7 +2838,17 @@ async def drop_out_player(event_id: str, user: dict = Depends(get_current_user))
             promoted["id"],
             "You're In!",
             f"A spot opened up — you've been promoted from the bench for {event.get('title', 'Sunday Doubles')}!",
-            "/schedule"
+            "/schedule",
+            urgency="high"
+        ))
+        all_confirmed_ids = [p["id"] for p in confirmed]
+        asyncio.create_task(send_push_to_roster(
+            all_confirmed_ids,
+            "Match Update",
+            f"{promoted['name']} has joined the Sunday roster. View the updated schedule.",
+            "/schedule",
+            urgency="low",
+            exclude_ids=[promoted["id"]]
         ))
 
     await db.checkins.update_one(
