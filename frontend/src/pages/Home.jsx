@@ -101,7 +101,7 @@ export default function Home() {
                                 )}
                                 <Link to="/education">
                                     <Button className="btn-secondary" data-testid="hero-learn-btn">
-                                        Doubles Tips
+                                        Improve Your Game
                                     </Button>
                                 </Link>
                             </div>

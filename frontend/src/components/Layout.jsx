@@ -215,7 +215,7 @@ export const Layout = ({ children }) => {
                             <ul className="space-y-2 text-gray-400 text-sm">
                                 <li><Link to="/schedule" className="hover:text-white transition-colors">Schedule</Link></li>
                                 {user && <li><Link to="/partnerships" className="hover:text-white transition-colors">Best Partnerships</Link></li>}
-                                {user && <li><Link to="/education" className="hover:text-white transition-colors">Doubles Tips</Link></li>}
+                                {user && <li><Link to="/education" className="hover:text-white transition-colors">Improve Your Game</Link></li>}
                                 {!user && <li><Link to="/login" className="hover:text-white transition-colors">Log In</Link></li>}
                                 {!user && <li><Link to="/register" className="hover:text-white transition-colors">Join Club</Link></li>}
                             </ul>

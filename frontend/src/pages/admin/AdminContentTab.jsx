@@ -167,30 +167,44 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                 </Card>
 
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                    <CardHeader><CardTitle>Existing Content</CardTitle></CardHeader>
+                    <CardHeader><CardTitle>Existing Content ({articles.length})</CardTitle></CardHeader>
                     <CardContent>
-                        <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                            {articles.map(article => (
-                                <div key={article.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg" data-testid={`article-${article.id}`}>
-                                    <div className="flex items-center gap-3">
-                                        {article.content_type === 'video' && <Video className="w-5 h-5 text-red-500" />}
-                                        {article.content_type === 'infographic' && <Image className="w-5 h-5 text-purple-500" />}
-                                        {article.content_type === 'article' && <FileText className="w-5 h-5 text-blue-500" />}
-                                        {article.content_type === 'survey' && <ClipboardList className="w-5 h-5 text-green-500" />}
-                                        {article.content_type === 'document' && <File className="w-5 h-5 text-orange-500" />}
-                                        <div>
-                                            <div className="font-medium text-sm">{article.title}</div>
-                                            <div className="text-xs text-gray-500">
-                                                {article.category}
-                                                {article.file_name && <span className="ml-2 text-[#0051BA]">{article.file_name}</span>}
+                        <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                            {articles.map(article => {
+                                const ytId = article.video_url?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/)?.[1];
+                                return (
+                                    <div key={article.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg" data-testid={`article-${article.id}`}>
+                                        {/* Mini preview */}
+                                        <div className="w-16 h-12 rounded-md overflow-hidden shrink-0 bg-gray-200">
+                                            {ytId ? (
+                                                <img src={`https://img.youtube.com/vi/${ytId}/default.jpg`} alt="" className="w-full h-full object-cover" />
+                                            ) : article.image_url ? (
+                                                <img src={article.image_url} alt="" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                                                    {article.content_type === 'video' && <Video className="w-4 h-4 text-red-400" />}
+                                                    {article.content_type === 'document' && <File className="w-4 h-4 text-orange-400" />}
+                                                    {article.content_type === 'article' && <FileText className="w-4 h-4 text-blue-400" />}
+                                                    {article.content_type === 'survey' && <ClipboardList className="w-4 h-4 text-green-400" />}
+                                                    {article.content_type === 'infographic' && <Image className="w-4 h-4 text-purple-400" />}
+                                                    {!article.content_type && <FileText className="w-4 h-4 text-gray-400" />}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-medium text-sm truncate">{article.title}</div>
+                                            <div className="text-[10px] text-gray-400 flex items-center gap-2">
+                                                <span>{article.category}</span>
+                                                {article.file_name && <span className="text-[#0051BA]">{article.file_name}</span>}
                                             </div>
                                         </div>
+                                        <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-600 shrink-0" onClick={() => onDeleteArticle(article.id)}>
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
                                     </div>
-                                    <Button size="sm" variant="ghost" className="text-red-500" onClick={() => onDeleteArticle(article.id)}>
-                                        <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                </div>
-                            ))}
+                                );
+                            })}
+                            {articles.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No content yet</p>}
                         </div>
                     </CardContent>
                 </Card>
