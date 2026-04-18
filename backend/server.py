@@ -601,7 +601,7 @@ async def register(user_data: UserCreate):
     
     token = create_token(user_id, role)
     response = JSONResponse(content={"token": token, "user": {"id": user_id, "email": user_data.email, "name": user_data.name, "phone": user_data.phone or "", "role": role}})
-    response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="lax", max_age=86400 * 7)
+    response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="none", max_age=86400 * 7)
     return response
 
 @api_router.post("/auth/login", response_model=dict)
@@ -617,13 +617,13 @@ async def login(credentials: UserLogin):
     token = create_token(user["id"], user["role"])
     logger.info(f"Login success: {credentials.email}")
     response = JSONResponse(content={"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}})
-    response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="lax", max_age=86400 * 7)
+    response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="none", max_age=86400 * 7)
     return response
 
 @api_router.post("/auth/logout")
 async def logout():
     response = JSONResponse(content={"message": "Logged out"})
-    response.delete_cookie(key="access_token")
+    response.delete_cookie(key="access_token", samesite="none", secure=True)
     return response
 
 @api_router.get("/auth/me", response_model=UserResponse)
@@ -2880,7 +2880,13 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=[
+        "https://tennis-buddies.me",
+        "https://www.tennis-buddies.me",
+        "https://match-mixer.emergent.host",
+        "https://doubles-ladder.preview.emergentagent.com",
+        "http://localhost:3000",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
