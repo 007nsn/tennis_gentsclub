@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, UploadFile, File
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -11,6 +11,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional
 import uuid
+import io
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
@@ -657,6 +658,35 @@ async def update_user(user_id: str, update_data: UserUpdate, admin: dict = Depen
         await db.solo_players.update_one({"user_id": user_id}, {"$set": {"name": update_dict["name"]}})
     
     return {"message": "User updated"}
+
+@api_router.get("/users/export")
+async def export_users_excel(admin: dict = Depends(get_admin_user)):
+    """Export members as Excel file (name, email, phone)"""
+    from openpyxl import Workbook
+    users = await db.users.find({"role": {"$ne": "admin"}}, {"_id": 0}).to_list(1000)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Members"
+    ws.append(["Name", "Email", "Phone", "Registered"])
+    for col in ['A', 'B', 'C', 'D']:
+        ws.column_dimensions[col].width = 25
+    for u in users:
+        ws.append([
+            u.get("name", ""),
+            u.get("email", ""),
+            u.get("phone", ""),
+            u.get("created_at", "")[:10] if u.get("created_at") else ""
+        ])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=tennis_buddies_members.xlsx"}
+    )
 
 # ============ TEAM ROUTES ============
 

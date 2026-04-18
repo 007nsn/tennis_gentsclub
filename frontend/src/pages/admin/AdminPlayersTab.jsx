@@ -4,9 +4,26 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../..
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
-import { Edit2, Trash2 } from 'lucide-react';
+import { Edit2, Trash2, Download } from 'lucide-react';
+import { exportUsersExcel } from '../../lib/api';
+import { toast } from 'sonner';
 
 export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, onUpdateUser, onClearUsers }) {
+
+    const handleExport = async () => {
+        try {
+            const res = await exportUsersExcel();
+            const url = URL.createObjectURL(res.data);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'tennis_buddies_members.xlsx';
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success('Members exported!');
+        } catch (e) {
+            toast.error('Export failed');
+        }
+    };
     const [editingPlayer, setEditingPlayer] = useState(null);
     const [editingUser, setEditingUser] = useState(null);
 
@@ -50,8 +67,15 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
 
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                     <CardHeader>
-                        <CardTitle>Club Members</CardTitle>
-                        <CardDescription>Edit member names</CardDescription>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <CardTitle>Club Members</CardTitle>
+                                <CardDescription>Edit member names</CardDescription>
+                            </div>
+                            <Button size="sm" variant="outline" className="text-[#0051BA] border-[#0051BA]/30" onClick={handleExport} data-testid="export-members-btn">
+                                <Download className="w-4 h-4 mr-1" /> Export Excel
+                            </Button>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-3 max-h-96 overflow-y-auto">
