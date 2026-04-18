@@ -167,4 +167,10 @@ export const restoreLastEvent = () => api.post('/weekly-events/restore-last');
 export const editSchedule = (eventId, data) => api.put(`/weekly-events/${eventId}/edit-schedule`, data);
 export const swapPlayerInSchedule = (eventId, params) => api.post(`/weekly-events/${eventId}/swap-player`, null, { params });
 
+// Push Notifications
+export const getVapidKey = () => api.get('/push/vapid-key');
+export const pushSubscribe = (subscription) => api.post('/push/subscribe', { subscription });
+export const pushUnsubscribe = () => api.post('/push/unsubscribe');
+export const getPushStatus = () => api.get('/push/status');
+
 export default api;

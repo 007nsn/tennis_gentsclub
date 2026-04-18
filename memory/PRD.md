@@ -1,8 +1,5 @@
 # Tennis Buddies Club - PRD
 
-## Original Problem Statement
-Build a website for Sunday doubles tennis buddies with Solo Ladder, Season Standings, chatroom, match history, AI doubles coaching (Opponent Scout & Live Strategy Bot), and a dynamic Weekly Check-In system with an Admin-approved Doubles Round Robin algorithm that handles byes and partner rotations.
-
 ## Production URL
 - Primary: https://tennis-buddies.me
 - Fallback: https://match-mixer.emergent.host
@@ -14,51 +11,51 @@ Build a website for Sunday doubles tennis buddies with Solo Ladder, Season Stand
 - [x] Solo Ladder, Season Standings, Head-to-Head, Best Partnerships
 - [x] Club Chatroom, Match History, Match Reminders
 - [x] Opponent Scout + Strategy Bot (Gemini 3 Pro)
-- [x] Hawthorne NY weather link, Support This Site (Venmo)
+- [x] Support This Site (Venmo), Hawthorne NY weather
 
 ### RSVP & Scheduling
-- [x] Auto-confirm RSVP (maxPlayers = courts × 4, overflow → bench)
+- [x] Auto-confirm RSVP (maxPlayers = courts x 4, overflow to bench)
 - [x] Auto-replacement: bench player promoted on drop-out (FIFO)
-- [x] RSVP opens on configurable day/time (default: Wed 7AM)
-- [x] Admin: Close/Reopen RSVP, Add players from roster dropdown
-- [x] Admin: Restore deleted events, Generate/Edit Round Robin schedule
-- [x] isAdminOverridden flag disables auto-regeneration
-- [x] Sunday-only dropdown for event creation (fixed Monday bug)
+- [x] Configurable RSVP open day/time (default Wed 7AM)
+- [x] Admin: Close/Reopen RSVP, Add players from roster, Restore deleted events
+- [x] Admin: Generate/Edit Round Robin schedule, isAdminOverridden flag
+- [x] Sunday-only dropdown for event creation
+
+### Push Notifications (Web Push API)
+- [x] Browser push notifications when bench player promoted to confirmed
+- [x] VAPID key-based Web Push subscription
+- [x] Service worker (sw-push.js) for handling push events
+- [x] "Enable Notifications" toggle on Schedule page (members only)
+- [x] Auto-cleanup of expired subscriptions
 
 ### Content System (Improve)
-- [x] File upload (PDF, DOCX, PPTX) via Emergent Object Storage
-- [x] YouTube auto-thumbnails (maxresdefault with fallback)
-- [x] Modal overlay for content viewing (no page redirect)
+- [x] File upload (PDF, DOCX, PPTX) via Object Storage
+- [x] YouTube auto-thumbnails, modal overlay viewing
 - [x] In-modal YouTube iframe + Google Docs viewer for PDF/PPTX
-- [x] Masonry CSS grid layout, lazy loading
-- [x] Dark gradient fallback for missing thumbnails (no blue placeholders)
+- [x] Masonry grid, lazy loading, dark gradient fallbacks
 - [x] Downloads require login
 
 ### Admin
-- [x] Per-tab delete controls (users, events, matches, chat, content)
-- [x] Individual delete for chat messages and announcements
-- [x] Export members as Excel (name, email, phone)
-- [x] Admin content form with drag-and-drop upload + mini previews
-- [x] Club/RSVP settings, Reset Everything nuclear option
+- [x] Per-tab delete controls, individual chat/announcement delete
+- [x] Export members as Excel
+- [x] Content form with drag-and-drop upload + mini previews
 
 ### Navigation
-- [x] Public sees only: Home, Schedule, Log In, Join Club
-- [x] Members see all tabs after login
-- [x] Footer: member-only links hidden for public
+- [x] Public: Home, Schedule, Log In, Join Club only
+- [x] Members: all tabs after login
 - [x] "Doubles Tips" removed, unified under "Improve"
 
 ### Deployment
-- [x] /health + /api/health endpoints
-- [x] CORS for tennis-buddies.me + match-mixer.emergent.host
-- [x] Cookie samesite=none for custom domain
-- [x] FRONTEND_URL env variable (no hardcoded URLs)
-- [x] .gitignore cleaned, admin auto-seed on startup
+- [x] /health endpoints, CORS for tennis-buddies.me
+- [x] Cookie samesite=none, FRONTEND_URL env variable
+- [x] .gitignore cleaned, admin auto-seed
 
 ## Architecture
 - Frontend: React 19, Tailwind CSS, Shadcn/UI
 - Backend: FastAPI, Motor (async MongoDB)
 - AI: Gemini 3 Pro via Emergent integrations
 - Storage: Emergent Object Storage
+- Notifications: Web Push API + pywebpush
 
 ## Backlog
 - P2: Tournament brackets, WebSocket real-time chat

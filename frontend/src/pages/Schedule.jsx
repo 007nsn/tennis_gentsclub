@@ -23,6 +23,7 @@ import {
     Shuffle, Trash2, ChevronDown, ChevronUp, CloudSun,
     Lock, Unlock, LogOut, UserPlus, Armchair, Edit3, Save
 } from 'lucide-react';
+import { NotificationToggle } from '../components/NotificationToggle';
 
 // Backward-compatible: old events use approved_players, new use confirmed_players
 const getConfirmed = (event) => event.confirmed_players || event.approved_players || [];
@@ -103,8 +104,9 @@ function CheckInButton({ eventId, event, onUpdate }) {
             ) : isBenched ? (
                 <div>
                     <Badge className="bg-orange-500 text-white mb-2"><Armchair className="w-3 h-3 mr-1" />On the Bench</Badge>
-                    <p className="text-xs text-gray-500 mb-1">You'll be auto-promoted if a spot opens</p>
-                    <Button size="sm" variant="outline" className="text-red-500 border-red-200 w-full" onClick={() => handleRsvp('not_available')} disabled={submitting}>
+                    <p className="text-xs text-gray-500 mb-2">You'll be auto-promoted if a spot opens</p>
+                    <NotificationToggle compact />
+                    <Button size="sm" variant="outline" className="text-red-500 border-red-200 w-full mt-2" onClick={() => handleRsvp('not_available')} disabled={submitting}>
                         <X className="w-4 h-4 mr-1" /> Cancel
                     </Button>
                 </div>
@@ -626,6 +628,14 @@ export default function Schedule() {
                             </a>
                         </CardContent>
                     </Card>
+
+                    {user && !isAdmin && (
+                        <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                            <CardContent className="p-4">
+                                <NotificationToggle />
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {isAdmin && (
                         <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">

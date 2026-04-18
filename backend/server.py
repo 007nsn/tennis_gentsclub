@@ -33,6 +33,9 @@ EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://doubles-ladder.preview.emergentagent.com')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '').replace('\\n', '\n')
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
+VAPID_CLAIMS = {"sub": "mailto:admin@tennis-buddies.me"}
 
 # Initialize Resend
 if RESEND_API_KEY:
@@ -1065,6 +1068,64 @@ async def delete_article(article_id: str, user: dict = Depends(get_admin_user)):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Article not found")
     return {"message": "Article deleted"}
+
+# ============ PUSH NOTIFICATIONS ============
+
+@api_router.get("/push/vapid-key")
+async def get_vapid_key():
+    """Return the public VAPID key for push subscription"""
+    return {"publicKey": VAPID_PUBLIC_KEY}
+
+@api_router.post("/push/subscribe")
+async def push_subscribe(request: Request, user: dict = Depends(get_current_user)):
+    """Save a push subscription for the user"""
+    body = await request.json()
+    subscription = body.get("subscription")
+    if not subscription:
+        raise HTTPException(status_code=400, detail="Missing subscription")
+    await db.push_subscriptions.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"user_id": user["id"], "user_name": user["name"], "subscription": subscription, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+    return {"message": "Subscribed to push notifications"}
+
+@api_router.post("/push/unsubscribe")
+async def push_unsubscribe(user: dict = Depends(get_current_user)):
+    """Remove push subscription for the user"""
+    await db.push_subscriptions.delete_many({"user_id": user["id"]})
+    return {"message": "Unsubscribed from push notifications"}
+
+@api_router.get("/push/status")
+async def push_status(user: dict = Depends(get_current_user)):
+    """Check if user has an active push subscription"""
+    sub = await db.push_subscriptions.find_one({"user_id": user["id"]}, {"_id": 0})
+    return {"subscribed": sub is not None}
+
+async def send_push_notification(user_id: str, title: str, body: str, url: str = "/schedule"):
+    """Send a push notification to a specific user"""
+    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        logger.warning("VAPID keys not configured, skipping push notification")
+        return
+    sub_doc = await db.push_subscriptions.find_one({"user_id": user_id}, {"_id": 0})
+    if not sub_doc:
+        return
+    subscription = sub_doc["subscription"]
+    try:
+        from pywebpush import webpush
+        import json
+        payload = json.dumps({"title": title, "body": body, "url": url})
+        webpush(
+            subscription_info=subscription,
+            data=payload,
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims=VAPID_CLAIMS
+        )
+        logger.info(f"Push sent to {sub_doc.get('user_name', user_id)}")
+    except Exception as e:
+        logger.error(f"Push notification failed for {user_id}: {e}")
+        if "410" in str(e) or "404" in str(e):
+            await db.push_subscriptions.delete_one({"user_id": user_id})
 
 # ============ FILE UPLOAD & SERVE ============
 
@@ -2429,6 +2490,13 @@ async def submit_checkin(data: CheckInCreate, user: dict = Depends(get_current_u
                 {"event_id": data.event_id, "user_id": promoted["id"]},
                 {"$set": {"status": "confirmed", "updated_at": now_ts}}
             )
+            # Push notification to promoted player
+            asyncio.create_task(send_push_notification(
+                promoted["id"],
+                "You're In!",
+                f"A spot opened up — you've been promoted from the bench for {event.get('title', 'Sunday Doubles')}!",
+                "/schedule"
+            ))
 
     await db.weekly_events.update_one({"id": data.event_id}, {"$set": {
         "confirmed_players": confirmed,
@@ -2534,7 +2602,18 @@ async def cancel_player(event_id: str, user: dict = Depends(get_current_user)):
     if was_confirmed and bench:
         bench.sort(key=lambda b: b.get("timestamp", b.get("added_at", "")))
         promoted = bench.pop(0)
-        confirmed.append({"id": promoted["id"], "name": promoted["name"], "timestamp": datetime.now(timezone.utc).isoformat()})
+        now_ts = datetime.now(timezone.utc).isoformat()
+        confirmed.append({"id": promoted["id"], "name": promoted["name"], "timestamp": now_ts})
+        await db.checkins.update_one(
+            {"event_id": event_id, "user_id": promoted["id"]},
+            {"$set": {"status": "confirmed", "updated_at": now_ts}}
+        )
+        asyncio.create_task(send_push_notification(
+            promoted["id"],
+            "You're In!",
+            f"A spot opened up — you've been promoted from the bench for {event.get('title', 'Sunday Doubles')}!",
+            "/schedule"
+        ))
 
     await db.weekly_events.update_one({"id": event_id}, {"$set": {
         "confirmed_players": confirmed,
@@ -2716,6 +2795,12 @@ async def drop_out_player(event_id: str, user: dict = Depends(get_current_user))
             {"event_id": event_id, "user_id": promoted["id"]},
             {"$set": {"status": "confirmed", "updated_at": now_ts}}
         )
+        asyncio.create_task(send_push_notification(
+            promoted["id"],
+            "You're In!",
+            f"A spot opened up — you've been promoted from the bench for {event.get('title', 'Sunday Doubles')}!",
+            "/schedule"
+        ))
 
     await db.checkins.update_one(
         {"event_id": event_id, "user_id": user["id"]},
