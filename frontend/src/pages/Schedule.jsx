@@ -525,6 +525,19 @@ export default function Schedule() {
     const [creating, setCreating] = useState(false);
     const [registeredPlayers, setRegisteredPlayers] = useState([]);
 
+    const upcomingSundays = useMemo(() => {
+        const today = new Date();
+        const sundays = [];
+        let d = new Date(today);
+        const daysUntilSunday = (7 - d.getDay()) % 7;
+        d.setDate(d.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday));
+        for (let i = 0; i < 4; i++) {
+            sundays.push(new Date(d).toISOString().split('T')[0]);
+            d.setDate(d.getDate() + 7);
+        }
+        return sundays;
+    }, []);
+
     const loadData = useCallback(async () => {
         try {
             const [schedulesRes, eventsRes] = await Promise.all([
@@ -622,7 +635,19 @@ export default function Schedule() {
                             <CardContent>
                                 {showCreateForm ? (
                                     <div className="space-y-3">
-                                        <div><Label className="text-sm">Sunday Date</Label><Input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} data-testid="new-event-date" /></div>
+                                        <div>
+                                            <Label className="text-sm">Sunday Date</Label>
+                                            <Select value={newEventDate} onValueChange={setNewEventDate}>
+                                                <SelectTrigger data-testid="new-event-date"><SelectValue placeholder="Choose a Sunday" /></SelectTrigger>
+                                                <SelectContent>
+                                                    {upcomingSundays.map(date => (
+                                                        <SelectItem key={date} value={date}>
+                                                            {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
                                         <div className="flex gap-2">
                                             <Button size="sm" className="bg-[#0051BA]" onClick={handleCreateEvent} disabled={creating} data-testid="create-event-btn">
                                                 {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />} Create
