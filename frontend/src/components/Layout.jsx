@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
 import { 
     Home, Calendar, Trophy, Users, BookOpen, MessageCircle, 
-    Menu, X, LogOut, User, Settings, ChevronDown, Target, Bot, Award, Swords, Handshake
+    Menu, X, LogOut, User, Settings, ChevronDown, Target, Bot, Award, Swords, Handshake, Lock
 } from 'lucide-react';
 import {
     DropdownMenu,
@@ -34,10 +34,17 @@ export const Layout = ({ children }) => {
     const navigate = useNavigate();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [chatOpen, setChatOpen] = useState(false);
+    const [showLockPopup, setShowLockPopup] = useState(false);
 
     const handleLogout = () => {
         logout();
         navigate('/');
+    };
+
+    const handleLockedClick = (e) => {
+        e.preventDefault();
+        setShowLockPopup(true);
+        setTimeout(() => setShowLockPopup(false), 3000);
     };
 
     return (
@@ -58,21 +65,38 @@ export const Layout = ({ children }) => {
 
                         {/* Desktop Navigation */}
                         <div className="hidden md:flex items-center gap-1">
-                            {navLinks.filter(link => !link.authRequired || user).map(({ path, label, icon: Icon }) => (
-                                <Link
-                                    key={path}
-                                    to={path}
-                                    data-testid={`nav-${label.toLowerCase().replace(' ', '-')}`}
-                                    className={`px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center gap-2 ${
-                                        location.pathname === path
-                                            ? 'text-[#0051BA] bg-[#0051BA]/5'
-                                            : 'text-gray-600 hover:text-[#0051BA] hover:bg-gray-50'
-                                    }`}
-                                >
-                                    <Icon className="w-4 h-4" />
-                                    {label}
-                                </Link>
-                            ))}
+                            {navLinks.map(({ path, label, icon: Icon, authRequired }) => {
+                                const isLocked = authRequired && !user;
+                                if (isLocked) {
+                                    return (
+                                        <button
+                                            key={path}
+                                            onClick={handleLockedClick}
+                                            className="px-3 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center gap-1.5 text-gray-400 hover:text-gray-500 hover:bg-gray-50 cursor-pointer"
+                                            data-testid={`nav-${label.toLowerCase().replace(' ', '-')}-locked`}
+                                        >
+                                            <Icon className="w-4 h-4" />
+                                            {label}
+                                            <Lock className="w-3 h-3 opacity-50" />
+                                        </button>
+                                    );
+                                }
+                                return (
+                                    <Link
+                                        key={path}
+                                        to={path}
+                                        data-testid={`nav-${label.toLowerCase().replace(' ', '-')}`}
+                                        className={`px-3 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center gap-1.5 ${
+                                            location.pathname === path
+                                                ? 'text-[#0051BA] bg-[#0051BA]/5'
+                                                : 'text-gray-600 hover:text-[#0051BA] hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        <Icon className="w-4 h-4" />
+                                        {label}
+                                    </Link>
+                                );
+                            })}
                         </div>
 
                         {/* Right side */}
@@ -165,21 +189,37 @@ export const Layout = ({ children }) => {
                 {mobileMenuOpen && (
                     <div className="md:hidden border-t border-gray-100 bg-white animate-fade-in">
                         <div className="px-4 py-3 space-y-1">
-                            {navLinks.filter(link => !link.authRequired || user).map(({ path, label, icon: Icon }) => (
-                                <Link
-                                    key={path}
-                                    to={path}
-                                    onClick={() => setMobileMenuOpen(false)}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
-                                        location.pathname === path
-                                            ? 'text-[#0051BA] bg-[#0051BA]/5'
-                                            : 'text-gray-600'
-                                    }`}
-                                >
-                                    <Icon className="w-5 h-5" />
-                                    {label}
-                                </Link>
-                            ))}
+                            {navLinks.map(({ path, label, icon: Icon, authRequired }) => {
+                                const isLocked = authRequired && !user;
+                                if (isLocked) {
+                                    return (
+                                        <button
+                                            key={path}
+                                            onClick={(e) => { handleLockedClick(e); setMobileMenuOpen(false); }}
+                                            className="flex items-center gap-3 px-4 py-3 rounded-lg font-medium text-gray-400 w-full text-left"
+                                        >
+                                            <Icon className="w-5 h-5" />
+                                            {label}
+                                            <Lock className="w-3 h-3 ml-auto opacity-50" />
+                                        </button>
+                                    );
+                                }
+                                return (
+                                    <Link
+                                        key={path}
+                                        to={path}
+                                        onClick={() => setMobileMenuOpen(false)}
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
+                                            location.pathname === path
+                                                ? 'text-[#0051BA] bg-[#0051BA]/5'
+                                                : 'text-gray-600'
+                                        }`}
+                                    >
+                                        <Icon className="w-5 h-5" />
+                                        {label}
+                                    </Link>
+                                );
+                            })}
                         </div>
                     </div>
                 )}
@@ -192,6 +232,33 @@ export const Layout = ({ children }) => {
 
             {/* Chat Widget */}
             {user && <ChatWidget isOpen={chatOpen} onClose={() => setChatOpen(false)} />}
+
+            {/* Lock Popup */}
+            {showLockPopup && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center pointer-events-none">
+                    <div
+                        className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm mx-4 text-center pointer-events-auto animate-fade-in border border-gray-100"
+                        data-testid="lock-popup"
+                    >
+                        <div className="w-12 h-12 bg-[#0051BA]/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Lock className="w-6 h-6 text-[#0051BA]" />
+                        </div>
+                        <h3 className="font-['Barlow_Condensed'] text-xl font-bold uppercase mb-2">Members Only</h3>
+                        <p className="text-gray-600 text-sm mb-4">
+                            This feature is for registered Tennis Buddies members only. Join the club to get started!
+                        </p>
+                        <div className="flex gap-2 justify-center">
+                            <Link to="/register" onClick={() => setShowLockPopup(false)}>
+                                <Button className="btn-primary" data-testid="lock-popup-join">Join the Club</Button>
+                            </Link>
+                            <Link to="/login" onClick={() => setShowLockPopup(false)}>
+                                <Button variant="outline" data-testid="lock-popup-login">Log In</Button>
+                            </Link>
+                        </div>
+                    </div>
+                    <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px] -z-10" onClick={() => setShowLockPopup(false)} />
+                </div>
+            )}
 
             {/* Footer */}
             <footer className="bg-[#0F172A] text-white py-12 mt-16">

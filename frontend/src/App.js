@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { Toaster } from "./components/ui/sonner";
 import Layout from "./components/Layout";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 // Pages
 import Home from "./pages/Home";
@@ -30,24 +31,29 @@ function App() {
       <BrowserRouter>
         <Layout>
           <Routes>
+            {/* Public routes */}
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/schedule" element={<Schedule />} />
-            <Route path="/partnerships" element={<BestPartnerships />} />
-            <Route path="/solo-ladder" element={<SoloLadder />} />
-            <Route path="/season-standings" element={<SeasonStandings />} />
-            <Route path="/match-history" element={<MatchHistory />} />
-            <Route path="/education" element={<Education />} />
-            <Route path="/education/:id" element={<ArticleDetail />} />
-            <Route path="/submit-result" element={<SubmitResult />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/admin" element={<Admin />} />
-            <Route path="/availability" element={<Availability />} />
-            <Route path="/chatroom" element={<Chatroom />} />
-            <Route path="/opponent-scout" element={<OpponentScout />} />
-            <Route path="/strategy-bot" element={<StrategyBot />} />
-            <Route path="/head-to-head" element={<HeadToHead />} />
+
+            {/* Member-only routes */}
+            <Route path="/partnerships" element={<ProtectedRoute><BestPartnerships /></ProtectedRoute>} />
+            <Route path="/solo-ladder" element={<ProtectedRoute><SoloLadder /></ProtectedRoute>} />
+            <Route path="/season-standings" element={<ProtectedRoute><SeasonStandings /></ProtectedRoute>} />
+            <Route path="/match-history" element={<ProtectedRoute><MatchHistory /></ProtectedRoute>} />
+            <Route path="/education" element={<ProtectedRoute><Education /></ProtectedRoute>} />
+            <Route path="/education/:id" element={<ProtectedRoute><ArticleDetail /></ProtectedRoute>} />
+            <Route path="/submit-result" element={<ProtectedRoute><SubmitResult /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/availability" element={<ProtectedRoute><Availability /></ProtectedRoute>} />
+            <Route path="/chatroom" element={<ProtectedRoute><Chatroom /></ProtectedRoute>} />
+            <Route path="/opponent-scout" element={<ProtectedRoute><OpponentScout /></ProtectedRoute>} />
+            <Route path="/strategy-bot" element={<ProtectedRoute><StrategyBot /></ProtectedRoute>} />
+            <Route path="/head-to-head" element={<ProtectedRoute><HeadToHead /></ProtectedRoute>} />
+
+            {/* Admin-only route */}
+            <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
           </Routes>
         </Layout>
         <Toaster position="top-right" richColors />
