@@ -2348,10 +2348,10 @@ async def get_weekly_events():
 
 @api_router.get("/weekly-events/upcoming")
 async def get_upcoming_weekly_events():
-    """Get upcoming events (today and future)"""
+    """Get upcoming events (today and future, not archived)"""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     events = await db.weekly_events.find(
-        {"event_date": {"$gte": today}}, {"_id": 0}
+        {"event_date": {"$gte": today}, "archived": {"$ne": True}}, {"_id": 0}
     ).sort("event_date", 1).to_list(10)
     return events
 
@@ -3026,6 +3026,62 @@ async def clear_content(admin: dict = Depends(get_admin_user)):
     return {"message": f"Cleared {del_articles.deleted_count} articles, scout reports, and strategy chats"}
 
 
+# ============ WEEKLY CYCLE & ARCHIVES ============
+
+@api_router.get("/match-archives")
+async def get_match_archives(user: dict = Depends(get_current_user)):
+    """Get archived match data"""
+    archives = await db.match_archives.find({}, {"_id": 0}).sort("event_date", -1).to_list(50)
+    return archives
+
+@api_router.post("/admin/trigger-weekly-cycle")
+async def trigger_weekly_cycle(admin: dict = Depends(get_admin_user)):
+    """Admin manually triggers the weekly cycle (archive + auto-create)"""
+    import zoneinfo
+    settings = await db.settings.find_one({}, {"_id": 0}) or {}
+    tz_name = settings.get("checkin_timezone", "US/Eastern")
+    try:
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+    now = datetime.now(tz)
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    past_events = await db.weekly_events.find(
+        {"event_date": {"$lt": today_str}, "archived": {"$ne": True}}, {"_id": 0}
+    ).to_list(50)
+    archived_count = 0
+    for event in past_events:
+        confirmed = event.get("confirmed_players") or event.get("approved_players") or []
+        schedule = event.get("generated_schedule")
+        if schedule and confirmed:
+            await db.match_archives.insert_one({
+                "id": str(uuid.uuid4()), "event_id": event["id"], "event_date": event["event_date"],
+                "title": event.get("title", ""), "confirmed_players": confirmed,
+                "bench_players": event.get("bench_players", []), "schedule": schedule,
+                "archived_at": datetime.now(timezone.utc).isoformat()
+            })
+        await db.weekly_events.update_one({"id": event["id"]}, {"$set": {"archived": True}})
+        archived_count += 1
+    days_to_sunday = (6 - now.weekday()) % 7
+    if days_to_sunday == 0:
+        days_to_sunday = 7
+    next_sunday = (now + timedelta(days=days_to_sunday)).strftime("%Y-%m-%d")
+    existing_event = await db.weekly_events.find_one({"event_date": next_sunday})
+    created = False
+    if not existing_event:
+        await db.weekly_events.insert_one({
+            "id": str(uuid.uuid4()), "event_date": next_sunday,
+            "title": f"Sunday Doubles - {next_sunday}",
+            "location": settings.get("default_location", "Local Tennis Club"),
+            "start_time": settings.get("default_start_time", "09:00"),
+            "num_courts": settings.get("num_courts", 2),
+            "status": "open", "rsvp_closed": False, "confirmed_players": [], "bench_players": [],
+            "generated_schedule": None, "is_admin_overridden": False,
+            "created_at": datetime.now(timezone.utc).isoformat(), "created_by": admin["id"]
+        })
+        created = True
+    return {"message": f"Archived {archived_count} events. {'Created for ' + next_sunday if created else next_sunday + ' exists.'}", "archived": archived_count, "next_sunday": next_sunday, "event_created": created}
+
 # ============ HEALTH CHECK ============
 
 @api_router.get("/health")
@@ -3074,7 +3130,6 @@ async def seed_admin():
             await db.users.insert_one(admin_user)
             logger.info("Admin account created")
         else:
-            # Always reset password to ensure it works
             await db.users.update_one(
                 {"email": "admin@tennis.com"},
                 {"$set": {"password": new_hash, "role": "admin", "name": "Admin"}}
@@ -3089,6 +3144,116 @@ async def seed_admin():
         logger.info("Object storage initialized")
     except Exception as e:
         logger.error(f"Storage init failed (non-fatal): {e}")
+
+    # Start the weekly cycle scheduler
+    asyncio.create_task(weekly_cycle_scheduler())
+
+
+async def weekly_cycle_scheduler():
+    """Background task: checks every 5 minutes for automated weekly actions"""
+    import zoneinfo
+    logger.info("Weekly cycle scheduler started")
+    while True:
+        try:
+            settings = await db.settings.find_one({}, {"_id": 0}) or {}
+            tz_name = settings.get("checkin_timezone", "US/Eastern")
+            rsvp_open_day = settings.get("rsvp_open_day", 2)  # Wednesday
+            rsvp_open_hour = settings.get("rsvp_open_hour", 7)
+            try:
+                tz = zoneinfo.ZoneInfo(tz_name)
+            except Exception:
+                tz = timezone.utc
+            now = datetime.now(tz)
+
+            # --- ACTION 1: Archive past events (after Sunday) ---
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            past_events = await db.weekly_events.find(
+                {"event_date": {"$lt": today_str}, "archived": {"$ne": True}},
+                {"_id": 0}
+            ).to_list(50)
+
+            for event in past_events:
+                confirmed = event.get("confirmed_players") or event.get("approved_players") or []
+                schedule = event.get("generated_schedule")
+                if schedule and confirmed:
+                    # Archive: save to match_archives
+                    await db.match_archives.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "event_id": event["id"],
+                        "event_date": event["event_date"],
+                        "title": event.get("title", ""),
+                        "confirmed_players": confirmed,
+                        "bench_players": event.get("bench_players", []),
+                        "schedule": schedule,
+                        "archived_at": datetime.now(timezone.utc).isoformat()
+                    })
+                # Mark as archived
+                await db.weekly_events.update_one(
+                    {"id": event["id"]},
+                    {"$set": {"archived": True}}
+                )
+                logger.info(f"Archived event: {event.get('title', event['id'])}")
+
+            # --- ACTION 2: Auto-create next Sunday event on RSVP open day ---
+            # Check if it's the right day and hour
+            if now.weekday() == rsvp_open_day and now.hour == rsvp_open_hour:
+                # Calculate next Sunday
+                days_to_sunday = (6 - now.weekday()) % 7
+                if days_to_sunday == 0:
+                    days_to_sunday = 7
+                next_sunday = (now + timedelta(days=days_to_sunday)).strftime("%Y-%m-%d")
+
+                # Check if event already exists for that Sunday
+                existing_event = await db.weekly_events.find_one({"event_date": next_sunday})
+                last_auto_create = await db.scheduler_state.find_one({"key": "last_auto_create"})
+                last_create_date = last_auto_create.get("value", "") if last_auto_create else ""
+
+                if not existing_event and last_create_date != next_sunday:
+                    num_courts = settings.get("num_courts", 2)
+                    location = settings.get("default_location", "Local Tennis Club")
+                    start_time = settings.get("default_start_time", "09:00")
+                    event_id = str(uuid.uuid4())
+                    new_event = {
+                        "id": event_id,
+                        "event_date": next_sunday,
+                        "title": f"Sunday Doubles - {next_sunday}",
+                        "location": location,
+                        "start_time": start_time,
+                        "num_courts": num_courts,
+                        "status": "open",
+                        "rsvp_closed": False,
+                        "confirmed_players": [],
+                        "bench_players": [],
+                        "generated_schedule": None,
+                        "is_admin_overridden": False,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "created_by": "system"
+                    }
+                    await db.weekly_events.insert_one(new_event)
+                    await db.scheduler_state.update_one(
+                        {"key": "last_auto_create"},
+                        {"$set": {"key": "last_auto_create", "value": next_sunday}},
+                        upsert=True
+                    )
+                    logger.info(f"Auto-created event for {next_sunday}")
+
+                    # --- ACTION 3: Send global RSVP-open push ---
+                    all_subs = await db.push_subscriptions.find({}, {"_id": 0}).to_list(500)
+                    for sub_doc in all_subs:
+                        asyncio.create_task(send_push_notification(
+                            sub_doc["user_id"],
+                            "RSVP is OPEN!",
+                            "Sign up for this Sunday's match! Spots are first-come, first-served. Register now!",
+                            "/schedule",
+                            urgency="normal"
+                        ))
+                    logger.info(f"Sent RSVP-open push to {len(all_subs)} subscribers")
+
+        except Exception as e:
+            logger.error(f"Weekly cycle error: {e}")
+
+        # Check every 5 minutes
+        await asyncio.sleep(300)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
