@@ -107,7 +107,9 @@ export function AdminRoundRobinTab({ onClearEvents }) {
         const today = new Date();
         const sundays = [];
         let d = new Date(today);
-        d.setDate(d.getDate() + ((7 - d.getDay()) % 7 || 7));
+        // Find next Sunday: Sunday is day 0
+        const daysUntilSunday = (7 - d.getDay()) % 7;
+        d.setDate(d.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday));
         for (let i = 0; i < 4; i++) {
             sundays.push(new Date(d).toISOString().split('T')[0]);
             d.setDate(d.getDate() + 7);

@@ -12,7 +12,8 @@ import {
     createWeeklyEvent, adminOverride,
     cancelPlayerSpot, generateDoublesSchedule, deleteWeeklyEvent,
     getEventCheckIns, closeRsvp, reopenRsvp, dropOutFromEvent,
-    addExternalPlayer, editSchedule
+    addPlayersToEvent, editSchedule, restoreLastEvent, getSoloLadder,
+    getUsers
 } from '../lib/api';
 import { Calendar as CalendarComponent } from '../components/ui/calendar';
 import { toast } from 'sonner';
@@ -303,13 +304,13 @@ function EditableScheduleDisplay({ event, onRefresh, isAdmin }) {
     );
 }
 
-function AdminEventPanel({ event, onRefresh }) {
+function AdminEventPanel({ event, onRefresh, allPlayers: registeredPlayers }) {
     const [checkins, setCheckins] = useState([]);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
     const [expanded, setExpanded] = useState(true);
-    const [extName, setExtName] = useState('');
-    const [addingExt, setAddingExt] = useState(false);
+    const [selectedPlayerIds, setSelectedPlayerIds] = useState([]);
+    const [addingPlayers, setAddingPlayers] = useState(false);
 
     const loadCheckins = useCallback(async () => {
         try {
@@ -327,6 +328,10 @@ function AdminEventPanel({ event, onRefresh }) {
     const maxPlayers = (event.num_courts || 2) * 4;
     const rsvpClosed = event.rsvp_closed;
 
+    // Filter out already-confirmed players from the dropdown
+    const confirmedIds = new Set(confirmed.map(p => p.id));
+    const availableToAdd = (registeredPlayers || []).filter(p => !confirmedIds.has(p.id || p.user_id));
+
     const handleGenerate = async () => {
         if (event.is_admin_overridden) {
             if (!window.confirm('This will overwrite the admin-edited schedule. Continue?')) return;
@@ -341,8 +346,17 @@ function AdminEventPanel({ event, onRefresh }) {
     };
 
     const handleDelete = async () => {
+        if (!window.confirm('Delete this event? You can restore it later.')) return;
         try { await deleteWeeklyEvent(event.id); toast.success('Event deleted'); onRefresh(); }
         catch (e) { toast.error('Delete failed'); }
+    };
+
+    const handleRestore = async () => {
+        try {
+            const res = await restoreLastEvent();
+            toast.success(res.data.message);
+            onRefresh();
+        } catch (e) { toast.error(e.response?.data?.detail || 'Nothing to restore'); }
     };
 
     const handleCloseRsvp = async () => {
@@ -355,16 +369,20 @@ function AdminEventPanel({ event, onRefresh }) {
         catch (e) { toast.error('Failed'); }
     };
 
-    const handleAddExternal = async () => {
-        if (!extName.trim()) return;
-        setAddingExt(true);
+    const togglePlayer = (playerId) => {
+        setSelectedPlayerIds(prev => prev.includes(playerId) ? prev.filter(id => id !== playerId) : [...prev, playerId]);
+    };
+
+    const handleAddPlayers = async () => {
+        if (selectedPlayerIds.length === 0) return;
+        setAddingPlayers(true);
         try {
-            await addExternalPlayer(event.id, { name: extName.trim() });
-            toast.success(`"${extName.trim()}" added!`);
-            setExtName('');
+            const res = await addPlayersToEvent(event.id, { player_ids: selectedPlayerIds });
+            toast.success(res.data.message);
+            setSelectedPlayerIds([]);
             onRefresh();
-        } catch (e) { toast.error('Failed'); }
-        finally { setAddingExt(false); }
+        } catch (e) { toast.error('Failed to add players'); }
+        finally { setAddingPlayers(false); }
     };
 
     return (
@@ -427,12 +445,40 @@ function AdminEventPanel({ event, onRefresh }) {
                                 </div>
                             )}
 
-                            {/* Add external player */}
-                            <div className="flex gap-2 items-center pt-2 border-t border-gray-100">
-                                <Input placeholder="Add non-member" value={extName} onChange={e => setExtName(e.target.value)} className="h-8 text-sm flex-1" data-testid="ext-player-name" />
-                                <Button size="sm" variant="outline" onClick={handleAddExternal} disabled={addingExt || !extName.trim()} data-testid="add-ext-player-btn">
-                                    {addingExt ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                                </Button>
+                            {/* Add registered players */}
+                            <div className="pt-2 border-t border-gray-100">
+                                <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">
+                                    <UserPlus className="w-3 h-3" /> Add Player from Roster:
+                                </p>
+                                {availableToAdd.length > 0 ? (
+                                    <div className="space-y-2">
+                                        <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                                            {availableToAdd.map(p => {
+                                                const pid = p.id || p.user_id;
+                                                const isSelected = selectedPlayerIds.includes(pid);
+                                                return (
+                                                    <Badge
+                                                        key={pid}
+                                                        className={`text-xs cursor-pointer select-none transition-colors ${isSelected ? 'bg-[#0051BA] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                                        onClick={() => togglePlayer(pid)}
+                                                        data-testid={`select-player-${pid}`}
+                                                    >
+                                                        {isSelected ? <Check className="w-3 h-3 mr-1" /> : <Plus className="w-3 h-3 mr-1" />}
+                                                        {p.name}
+                                                    </Badge>
+                                                );
+                                            })}
+                                        </div>
+                                        {selectedPlayerIds.length > 0 && (
+                                            <Button size="sm" className="bg-[#0051BA]" onClick={handleAddPlayers} disabled={addingPlayers} data-testid="add-selected-players-btn">
+                                                {addingPlayers ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <UserPlus className="w-4 h-4 mr-1" />}
+                                                Add {selectedPlayerIds.length} Player{selectedPlayerIds.length > 1 ? 's' : ''}
+                                            </Button>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-gray-400">All registered players already added</p>
+                                )}
                             </div>
 
                             {/* Actions */}
@@ -453,8 +499,11 @@ function AdminEventPanel({ event, onRefresh }) {
                                         {event.generated_schedule ? 'Regenerate' : 'Generate'} Schedule
                                     </Button>
                                 )}
-                                <Button size="sm" variant="ghost" className="text-red-500" onClick={handleDelete}>
+                                <Button size="sm" variant="ghost" className="text-red-500" onClick={handleDelete} data-testid="delete-event-btn">
                                     <Trash2 className="w-4 h-4 mr-1" /> Delete
+                                </Button>
+                                <Button size="sm" variant="ghost" className="text-blue-500" onClick={handleRestore} data-testid="restore-event-btn">
+                                    <Plus className="w-4 h-4 mr-1" /> Restore
                                 </Button>
                             </div>
                         </>
@@ -474,6 +523,7 @@ export default function Schedule() {
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [newEventDate, setNewEventDate] = useState('');
     const [creating, setCreating] = useState(false);
+    const [registeredPlayers, setRegisteredPlayers] = useState([]);
 
     const loadData = useCallback(async () => {
         try {
@@ -483,6 +533,14 @@ export default function Schedule() {
             ]);
             setSchedules(schedulesRes.data);
             setWeeklyEvents(eventsRes.data);
+            // Load registered players for admin dropdown
+            if (isAdmin) {
+                try {
+                    const usersRes = await getUsers();
+                    // Filter out admin accounts, keep only regular players
+                    setRegisteredPlayers(usersRes.data.filter(u => u.role !== 'admin'));
+                } catch (e) { /* ignore */ }
+            }
         } catch (error) {
             console.error('Error loading data:', error);
         } finally {
@@ -641,7 +699,7 @@ export default function Schedule() {
                             </h2>
                             <div className="space-y-4">
                                 {weeklyEvents.map(event => (
-                                    <AdminEventPanel key={event.id} event={event} onRefresh={refreshEvents} />
+                                    <AdminEventPanel key={event.id} event={event} onRefresh={refreshEvents} allPlayers={registeredPlayers} />
                                 ))}
                             </div>
                         </div>

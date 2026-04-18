@@ -381,6 +381,9 @@ class GenerateDoublesRRRequest(BaseModel):
 class AddExternalPlayerRequest(BaseModel):
     name: str
 
+class AddPlayersRequest(BaseModel):
+    player_ids: List[str]
+
 # ============ AUTH HELPERS ============
 
 def hash_password(password: str) -> str:
@@ -2266,10 +2269,30 @@ async def get_weekly_event(event_id: str):
 
 @api_router.delete("/weekly-events/{event_id}")
 async def delete_weekly_event(event_id: str, admin: dict = Depends(get_admin_user)):
-    """Admin deletes an event"""
+    """Admin soft-deletes an event (can be restored)"""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    # Soft delete: move to deleted_events collection
+    event["deleted_at"] = datetime.now(timezone.utc).isoformat()
+    event["deleted_by"] = admin["id"]
+    await db.deleted_events.insert_one(event)
     await db.weekly_events.delete_one({"id": event_id})
-    await db.checkins.delete_many({"event_id": event_id})
-    return {"message": "Event deleted"}
+    return {"message": "Event deleted (can be restored)"}
+
+@api_router.post("/weekly-events/restore-last")
+async def restore_last_event(admin: dict = Depends(get_admin_user)):
+    """Restore the most recently deleted event"""
+    last_deleted = await db.deleted_events.find_one({}, {"_id": 0}, sort=[("deleted_at", -1)])
+    if not last_deleted:
+        raise HTTPException(status_code=404, detail="No deleted events to restore")
+    event_id = last_deleted["id"]
+    # Remove soft-delete fields
+    last_deleted.pop("deleted_at", None)
+    last_deleted.pop("deleted_by", None)
+    await db.weekly_events.insert_one(last_deleted)
+    await db.deleted_events.delete_one({"id": event_id})
+    return {"message": f"Event '{last_deleted.get('title', event_id)}' restored"}
 
 # --- Check-in routes ---
 
@@ -2691,6 +2714,34 @@ async def add_external_player(event_id: str, data: AddExternalPlayerRequest, adm
     confirmed.append({"id": ext_id, "name": data.name, "external": True, "timestamp": datetime.now(timezone.utc).isoformat()})
     await db.weekly_events.update_one({"id": event_id}, {"$set": {"confirmed_players": confirmed}})
     return {"message": f"External player '{data.name}' added.", "player_id": ext_id}
+
+@api_router.post("/weekly-events/{event_id}/add-players")
+async def add_registered_players(event_id: str, data: AddPlayersRequest, admin: dict = Depends(get_admin_user)):
+    """Admin adds registered players to confirmed list (RSVP them manually)."""
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    confirmed = event.get("confirmed_players") or event.get("approved_players") or []
+    existing_ids = {p["id"] for p in confirmed}
+    added = []
+    now_ts = datetime.now(timezone.utc).isoformat()
+    for pid in data.player_ids:
+        if pid in existing_ids:
+            continue
+        u = await db.users.find_one({"id": pid}, {"_id": 0, "id": 1, "name": 1})
+        if u:
+            confirmed.append({"id": u["id"], "name": u["name"], "timestamp": now_ts})
+            added.append(u["name"])
+            # Also upsert checkin
+            existing_ci = await db.checkins.find_one({"event_id": event_id, "user_id": pid})
+            if existing_ci:
+                await db.checkins.update_one({"event_id": event_id, "user_id": pid}, {"$set": {"status": "confirmed", "updated_at": now_ts}})
+            else:
+                await db.checkins.insert_one({"id": str(uuid.uuid4()), "event_id": event_id, "user_id": pid, "user_name": u["name"], "status": "confirmed", "created_at": now_ts, "updated_at": now_ts})
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {"confirmed_players": confirmed}})
+    return {"message": f"Added {len(added)} players: {', '.join(added)}", "added_count": len(added)}
 
 @api_router.get("/weekly-events/{event_id}/checkin-window")
 async def get_checkin_window(event_id: str):

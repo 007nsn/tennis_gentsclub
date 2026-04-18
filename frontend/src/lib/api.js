@@ -161,6 +161,8 @@ export const closeRsvp = (eventId) => api.post(`/weekly-events/${eventId}/close-
 export const reopenRsvp = (eventId) => api.post(`/weekly-events/${eventId}/reopen-rsvp`);
 export const dropOutFromEvent = (eventId) => api.post(`/weekly-events/${eventId}/drop-out`);
 export const addExternalPlayer = (eventId, data) => api.post(`/weekly-events/${eventId}/add-external-player`, data);
+export const addPlayersToEvent = (eventId, data) => api.post(`/weekly-events/${eventId}/add-players`, data);
+export const restoreLastEvent = () => api.post('/weekly-events/restore-last');
 export const editSchedule = (eventId, data) => api.put(`/weekly-events/${eventId}/edit-schedule`, data);
 export const swapPlayerInSchedule = (eventId, params) => api.post(`/weekly-events/${eventId}/swap-player`, null, { params });
 
