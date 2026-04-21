@@ -81,6 +81,7 @@ export default function Admin() {
                     loading={data.loading}
                     onUpdatePlayer={data.handleUpdatePlayer}
                     onUpdateUser={data.handleUpdateUser}
+                    onDeleteUser={data.handleDeleteUser}
                     onClearUsers={data.handleClearUsers}
                 />
 

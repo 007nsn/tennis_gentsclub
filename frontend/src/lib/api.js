@@ -39,6 +39,7 @@ export const login = (data) => api.post('/auth/login', data);
 export const getMe = () => api.get('/auth/me');
 export const getUsers = () => api.get('/users');
 export const updateUser = (id, data) => api.put(`/users/${id}`, data);
+export const deleteUser = (id) => api.delete(`/users/${id}`);
 export const exportUsersExcel = () => api.get('/users/export', { responseType: 'blob' });
 
 // Teams

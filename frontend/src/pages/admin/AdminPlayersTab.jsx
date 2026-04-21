@@ -3,12 +3,17 @@ import { TabsContent } from '../../components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
 import { Badge } from '../../components/ui/badge';
-import { Edit2, Trash2, Download } from 'lucide-react';
+import { Edit2, Trash2, Download, Save, X, Loader2 } from 'lucide-react';
 import { exportUsersExcel } from '../../lib/api';
 import { toast } from 'sonner';
 
-export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, onUpdateUser, onClearUsers }) {
+export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, onUpdateUser, onDeleteUser, onClearUsers }) {
+    const [editingPlayer, setEditingPlayer] = useState(null);
+    const [editingUser, setEditingUser] = useState(null);
+    const [editForm, setEditForm] = useState({ name: '', email: '', phone: '' });
+    const [saving, setSaving] = useState(false);
 
     const handleExport = async () => {
         try {
@@ -24,8 +29,31 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
             toast.error('Export failed');
         }
     };
-    const [editingPlayer, setEditingPlayer] = useState(null);
-    const [editingUser, setEditingUser] = useState(null);
+
+    const openEditUser = (u) => {
+        setEditingUser(u.id);
+        setEditForm({ name: u.name || '', email: u.email || '', phone: u.phone || '' });
+    };
+
+    const handleSaveUser = async () => {
+        if (!editingUser) return;
+        setSaving(true);
+        try {
+            await onUpdateUser(editingUser, {
+                name: editForm.name || undefined,
+                email: editForm.email || undefined,
+                phone: editForm.phone || undefined
+            });
+            setEditingUser(null);
+        } catch (e) { /* handled in parent */ }
+        finally { setSaving(false); }
+    };
+
+    const handleDeleteUser = async (userId, userName) => {
+        if (!window.confirm(`Delete member "${userName}"? This removes all their data.`)) return;
+        await onDeleteUser(userId);
+        if (editingUser === userId) setEditingUser(null);
+    };
 
     return (
         <TabsContent value="players">
@@ -33,7 +61,7 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                     <CardHeader>
                         <CardTitle>Solo Ladder Players</CardTitle>
-                        <CardDescription>Edit player names and wins</CardDescription>
+                        <CardDescription>Edit player wins</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -61,6 +89,7 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                                     </Button>
                                 </div>
                             ))}
+                            {soloPlayers.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No players yet</p>}
                         </div>
                     </CardContent>
                 </Card>
@@ -70,7 +99,7 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                         <div className="flex items-center justify-between">
                             <div>
                                 <CardTitle>Club Members</CardTitle>
-                                <CardDescription>Edit member names</CardDescription>
+                                <CardDescription>Edit name, email, phone — or delete</CardDescription>
                             </div>
                             <Button size="sm" variant="outline" className="text-[#0051BA] border-[#0051BA]/30" onClick={handleExport} data-testid="export-members-btn">
                                 <Download className="w-4 h-4 mr-1" /> Export Excel
@@ -78,31 +107,88 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="space-y-3 max-h-96 overflow-y-auto">
+                        <div className="space-y-2 max-h-[500px] overflow-y-auto">
                             {users.map(u => (
-                                <div key={u.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg" data-testid={`user-${u.id}`}>
-                                    <div className="flex items-center gap-3">
-                                        {u.role === 'admin' && <Badge className="bg-[#0051BA]">Admin</Badge>}
-                                        {editingUser === u.id ? (
-                                            <Input
-                                                defaultValue={u.name}
-                                                className="w-40"
-                                                onBlur={(e) => { onUpdateUser(u.id, e.target.value); setEditingUser(null); }}
-                                                autoFocus
-                                            />
-                                        ) : (
-                                            <div>
-                                                <div className="font-medium">{u.name}</div>
-                                                <div className="text-sm text-gray-500">{u.email}</div>
-                                                {u.phone && <div className="text-sm text-gray-400">{u.phone}</div>}
+                                <div key={u.id} className="p-3 bg-gray-50 rounded-lg" data-testid={`user-${u.id}`}>
+                                    {editingUser === u.id ? (
+                                        /* Edit Modal */
+                                        <div className="space-y-3" data-testid={`edit-modal-${u.id}`}>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="text-xs font-medium text-[#0051BA] uppercase">Editing Member</span>
+                                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setEditingUser(null)}>
+                                                    <X className="w-4 h-4" />
+                                                </Button>
                                             </div>
-                                        )}
-                                    </div>
-                                    <Button size="sm" variant="ghost" onClick={() => setEditingUser(editingUser === u.id ? null : u.id)}>
-                                        <Edit2 className="w-4 h-4" />
-                                    </Button>
+                                            <div>
+                                                <Label className="text-xs text-gray-500">Name</Label>
+                                                <Input
+                                                    value={editForm.name}
+                                                    onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                                                    placeholder="Full name"
+                                                    className="h-8 text-sm"
+                                                    data-testid="edit-name-input"
+                                                />
+                                            </div>
+                                            <div>
+                                                <Label className="text-xs text-gray-500">Email</Label>
+                                                <Input
+                                                    type="email"
+                                                    value={editForm.email}
+                                                    onChange={e => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                                                    placeholder="email@example.com"
+                                                    className="h-8 text-sm"
+                                                    data-testid="edit-email-input"
+                                                />
+                                            </div>
+                                            <div>
+                                                <Label className="text-xs text-gray-500">Phone</Label>
+                                                <Input
+                                                    type="tel"
+                                                    value={editForm.phone}
+                                                    onChange={e => setEditForm(prev => ({ ...prev, phone: e.target.value }))}
+                                                    placeholder="(555) 123-4567"
+                                                    className="h-8 text-sm"
+                                                    data-testid="edit-phone-input"
+                                                />
+                                            </div>
+                                            <div className="flex gap-2 pt-1">
+                                                <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleSaveUser} disabled={saving} data-testid="save-user-btn">
+                                                    {saving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
+                                                    Save
+                                                </Button>
+                                                {u.role !== 'admin' && (
+                                                    <Button size="sm" variant="outline" className="text-red-500 border-red-200" onClick={() => handleDeleteUser(u.id, u.name)} data-testid="delete-user-btn">
+                                                        <Trash2 className="w-4 h-4 mr-1" /> Delete
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* Display Mode */
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                {u.role === 'admin' && <Badge className="bg-[#0051BA]">Admin</Badge>}
+                                                <div>
+                                                    <div className="font-medium">{u.name}</div>
+                                                    <div className="text-sm text-gray-500">{u.email}</div>
+                                                    {u.phone && <div className="text-sm text-gray-400">{u.phone}</div>}
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-1">
+                                                <Button size="sm" variant="outline" className="text-[#0051BA] border-[#0051BA]/20 h-7 text-xs" onClick={() => openEditUser(u)} data-testid={`edit-user-${u.id}`}>
+                                                    <Edit2 className="w-3 h-3 mr-1" /> Edit
+                                                </Button>
+                                                {u.role !== 'admin' && (
+                                                    <Button size="sm" variant="outline" className="text-red-500 border-red-200 h-7 text-xs" onClick={() => handleDeleteUser(u.id, u.name)} data-testid={`delete-user-${u.id}`}>
+                                                        <Trash2 className="w-3 h-3 mr-1" /> Delete
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
+                            {users.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No members yet</p>}
                         </div>
                     </CardContent>
                 </Card>

@@ -5,7 +5,7 @@ import {
     getSchedules, createSchedule,
     getArticles, createArticle, deleteArticle,
     getAnnouncements, createAnnouncement, deleteAnnouncement,
-    getUsers, updateUser,
+    getUsers, updateUser, deleteUser,
     getSoloLadder, updateSoloPlayer,
     getAvailability, getUpcomingSundays,
     getSettings, updateSettings, seedSampleContent,
@@ -168,13 +168,23 @@ export function useAdminData() {
         }
     }, [loadAllData]);
 
-    const handleUpdateUser = useCallback(async (userId, name) => {
+    const handleUpdateUser = useCallback(async (userId, data) => {
         try {
-            await updateUser(userId, { name });
+            await updateUser(userId, data);
             toast.success('User updated!');
             loadAllData();
         } catch (error) {
             toast.error('Failed to update user');
+        }
+    }, [loadAllData]);
+
+    const handleDeleteUser = useCallback(async (userId) => {
+        try {
+            const res = await deleteUser(userId);
+            toast.success(res.data.message);
+            loadAllData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to delete user');
         }
     }, [loadAllData]);
 
@@ -300,6 +310,7 @@ export function useAdminData() {
         handleCreateAnnouncement,
         handleUpdatePlayer,
         handleUpdateUser,
+        handleDeleteUser,
         handleUpdateSettings,
         handleSeedContent,
         handleSendReminder,

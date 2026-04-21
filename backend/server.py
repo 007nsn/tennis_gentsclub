@@ -662,6 +662,20 @@ async def update_user(user_id: str, update_data: UserUpdate, admin: dict = Depen
     
     return {"message": "User updated"}
 
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, admin: dict = Depends(get_admin_user)):
+    """Admin deletes a member entirely"""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("role") == "admin":
+        raise HTTPException(status_code=400, detail="Cannot delete admin account")
+    await db.users.delete_one({"id": user_id})
+    await db.solo_players.delete_many({"user_id": user_id})
+    await db.checkins.delete_many({"user_id": user_id})
+    await db.push_subscriptions.delete_many({"user_id": user_id})
+    return {"message": f"User '{user.get('name', '')}' deleted"}
+
 @api_router.get("/users/export")
 async def export_users_excel(admin: dict = Depends(get_admin_user)):
     """Export members as Excel file (name, email, phone)"""
