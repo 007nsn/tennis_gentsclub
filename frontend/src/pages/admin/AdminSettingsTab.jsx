@@ -56,6 +56,23 @@ export function AdminSettingsTab({ settings, onSettingsChange, onSave }) {
                             <Input type="number" min="1" max="10" value={settings.num_courts} onChange={(e) => onSettingsChange({ ...settings, num_courts: parseInt(e.target.value) })} data-testid="courts-input" />
                         </div>
                         <div className="space-y-2">
+                            <Label>Round Robin Rounds</Label>
+                            <Input
+                                type="number"
+                                min="1"
+                                max="5"
+                                value={settings.round_robin_rounds ?? 3}
+                                onChange={(e) => {
+                                    let v = parseInt(e.target.value, 10);
+                                    if (Number.isNaN(v)) v = 3;
+                                    v = Math.min(5, Math.max(1, v));
+                                    onSettingsChange({ ...settings, round_robin_rounds: v });
+                                }}
+                                data-testid="round-robin-rounds-input"
+                            />
+                            <p className="text-xs text-muted-foreground">Number of rounds when generating a Sunday doubles schedule (1–5).</p>
+                        </div>
+                        <div className="space-y-2">
                             <Label>Default Location</Label>
                             <Input value={settings.default_location} onChange={(e) => onSettingsChange({ ...settings, default_location: e.target.value })} data-testid="location-input" />
                         </div>

@@ -28,6 +28,7 @@ export function useAdminData() {
     const [availability, setAvailability] = useState({});
     const [settings, setSettings] = useState({
         num_courts: 2,
+        round_robin_rounds: 3,
         default_location: 'Local Tennis Club',
         match_duration_minutes: 30,
         default_start_time: '09:00'
@@ -45,7 +46,7 @@ export function useAdminData() {
                 getUsers(),
                 getSoloLadder(),
                 getUpcomingSundays(),
-                getSettings().catch(() => ({ data: { num_courts: 2, default_location: 'Local Tennis Club', match_duration_minutes: 30, default_start_time: '09:00' } }))
+                getSettings().catch(() => ({ data: { num_courts: 2, round_robin_rounds: 3, default_location: 'Local Tennis Club', match_duration_minutes: 30, default_start_time: '09:00' } }))
             ]);
             setPendingMatches(matchesRes.data);
             setTeams(teamsRes.data);

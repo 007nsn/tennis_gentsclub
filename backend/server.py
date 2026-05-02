@@ -346,12 +346,38 @@ class RoundRobinRequest(BaseModel):
 
 class ClubSettings(BaseModel):
     num_courts: int = 2
+    round_robin_rounds: int = Field(default=3, ge=1, le=5)
     default_location: str = "Local Tennis Club"
     match_duration_minutes: int = 30
     default_start_time: str = "09:00"
     checkin_timezone: str = "US/Eastern"
     rsvp_open_day: int = 2  # 0=Mon,1=Tue,2=Wed,3=Thu,4=Fri,5=Sat,6=Sun
     rsvp_open_hour: int = 7  # Hour in local timezone (0-23)
+
+class SiteThemeSettings(BaseModel):
+    primary_color: str = "#0051BA"
+    accent_color: str = "#CCFF00"
+    button_style: str = "solid"  # solid, outline, pill
+    corner_radius: str = "medium"  # small, medium, large
+
+class SiteHomeContentSettings(BaseModel):
+    hero_title: str = "Tennis Buddies Club"
+    hero_subtitle: str = "Your Sunday doubles tennis community."
+    hero_cta_label: str = "Join the Club"
+    hero_cta_url: str = "/register"
+    support_text: str = "Love Tennis Buddies Club?"
+    support_button_label: str = "Support This Site"
+    support_button_url: str = "https://venmo.com/u/Sergei-Nabatov"
+
+class SiteLayoutFlags(BaseModel):
+    show_announcements: bool = True
+    show_upcoming_matches: bool = True
+    show_support_banner: bool = True
+
+class SiteSettingsPayload(BaseModel):
+    theme: SiteThemeSettings = Field(default_factory=SiteThemeSettings)
+    home_content: SiteHomeContentSettings = Field(default_factory=SiteHomeContentSettings)
+    layout_flags: SiteLayoutFlags = Field(default_factory=SiteLayoutFlags)
 
 # ============ WEEKLY CHECK-IN MODELS ============
 
@@ -381,6 +407,9 @@ class GenerateDoublesRRRequest(BaseModel):
     num_courts: Optional[int] = None
     start_time: Optional[str] = None
     match_duration_minutes: Optional[int] = None
+    mode: Optional[str] = "hybrid"  # doubles_only, hybrid, singles_only
+    allow_canadian_doubles: Optional[bool] = True
+    optimize: Optional[str] = "balanced"  # balanced, maximize_play_time, maximize_fairness
 
 class AddExternalPlayerRequest(BaseModel):
     name: str
@@ -1151,7 +1180,11 @@ async def send_push_to_roster(player_ids: list, title: str, body: str, url: str 
 
 # ============ FILE UPLOAD & SERVE ============
 
-ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "ppt", "pptx", "txt", "png", "jpg", "jpeg", "gif", "webp"}
+ALLOWED_EXTENSIONS = {
+    "pdf", "doc", "docx", "ppt", "pptx", "txt",
+    "png", "jpg", "jpeg", "gif", "webp",
+    "mp4", "webm", "mov"
+}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 @api_router.post("/upload")
@@ -1597,6 +1630,7 @@ async def get_settings(user: dict = Depends(get_admin_user)):
         settings = {
             "type": "club",
             "num_courts": 2,
+            "round_robin_rounds": 3,
             "default_location": "Local Tennis Club",
             "match_duration_minutes": 30,
             "default_start_time": "09:00",
@@ -1608,6 +1642,8 @@ async def get_settings(user: dict = Depends(get_admin_user)):
             settings["rsvp_open_day"] = 2
         if "rsvp_open_hour" not in settings:
             settings["rsvp_open_hour"] = 7
+        if "round_robin_rounds" not in settings:
+            settings["round_robin_rounds"] = 3
     return settings
 
 @api_router.put("/settings")
@@ -1616,6 +1652,46 @@ async def update_settings(settings: ClubSettings, user: dict = Depends(get_admin
     settings_dict["type"] = "club"
     await db.settings.update_one({"type": "club"}, {"$set": settings_dict}, upsert=True)
     return {"message": "Settings updated"}
+
+def get_default_site_settings() -> dict:
+    payload = SiteSettingsPayload()
+    settings = payload.model_dump()
+    return {"type": "site_settings", "draft": settings, "published": settings}
+
+@api_router.get("/site-settings")
+async def get_site_settings(admin: dict = Depends(get_admin_user)):
+    doc = await db.site_settings.find_one({"type": "site_settings"}, {"_id": 0})
+    if not doc:
+        doc = get_default_site_settings()
+    return doc
+
+@api_router.put("/site-settings/draft")
+async def update_site_settings_draft(
+    payload: SiteSettingsPayload,
+    admin: dict = Depends(get_admin_user)
+):
+    existing = await db.site_settings.find_one({"type": "site_settings"}, {"_id": 0})
+    default_doc = get_default_site_settings() if not existing else existing
+    published = default_doc.get("published", payload.model_dump())
+    await db.site_settings.update_one(
+        {"type": "site_settings"},
+        {"$set": {"type": "site_settings", "draft": payload.model_dump(), "published": published}},
+        upsert=True
+    )
+    return {"message": "Site settings draft saved"}
+
+@api_router.post("/site-settings/publish")
+async def publish_site_settings(admin: dict = Depends(get_admin_user)):
+    existing = await db.site_settings.find_one({"type": "site_settings"}, {"_id": 0})
+    if not existing:
+        existing = get_default_site_settings()
+    draft = existing.get("draft") or existing.get("published") or SiteSettingsPayload().model_dump()
+    await db.site_settings.update_one(
+        {"type": "site_settings"},
+        {"$set": {"type": "site_settings", "draft": draft, "published": draft}},
+        upsert=True
+    )
+    return {"message": "Site settings published"}
 
 # ============ SEND AVAILABILITY REMINDER ============
 
@@ -2202,7 +2278,7 @@ async def new_strategy_session(user: dict = Depends(get_current_user)):
 
 # ============ DOUBLES ROUND ROBIN ALGORITHM ============
 
-def generate_doubles_round_robin(players: List[dict], num_courts: int) -> List[dict]:
+def generate_doubles_round_robin(players: List[dict], num_courts: int, num_rounds: int = 3) -> List[dict]:
     """
     Generate a doubles round robin schedule.
     - Format: 2v2
@@ -2223,8 +2299,7 @@ def generate_doubles_round_robin(players: List[dict], num_courts: int) -> List[d
     bye_counts = {pid: 0 for pid in player_ids}
     last_partners = {}  # who each player partnered with last round
 
-    # Number of rounds = enough for everyone to play multiple times
-    num_rounds = max(n - 1, 4)
+    num_rounds = max(1, min(5, int(num_rounds)))
     players_per_match = 4
     available_slots = num_courts * players_per_match
 
@@ -2686,12 +2761,13 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
     if len(confirmed) < 4:
         raise HTTPException(status_code=400, detail=f"Need at least 4 confirmed players (have {len(confirmed)})")
 
-    settings = await db.settings.find_one({}, {"_id": 0}) or {}
+    settings = await db.settings.find_one({"type": "club"}, {"_id": 0}) or {}
     nc = data.num_courts or event.get("num_courts") or settings.get("num_courts", 2)
     st = data.start_time or event.get("start_time") or settings.get("default_start_time", "09:00")
     dur = data.match_duration_minutes or settings.get("match_duration_minutes", 30)
+    rr_rounds = max(1, min(5, int(settings.get("round_robin_rounds", 3))))
 
-    rounds = generate_doubles_round_robin(confirmed, nc)
+    rounds = generate_doubles_round_robin(confirmed, nc, rr_rounds)
 
     start_hour, start_min = map(int, st.split(":"))
     for r in rounds:
@@ -2702,7 +2778,15 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
         "generated_schedule": rounds,
         "status": "scheduled",
         "is_admin_overridden": False,
-        "schedule_settings": {"num_courts": nc, "start_time": st, "match_duration": dur}
+        "schedule_settings": {
+            "num_courts": nc,
+            "round_robin_rounds": rr_rounds,
+            "start_time": st,
+            "match_duration": dur,
+            "mode": data.mode or "hybrid",
+            "allow_canadian_doubles": bool(data.allow_canadian_doubles),
+            "optimize": data.optimize or "balanced",
+        }
     }})
 
     # Post to chatroom
@@ -2736,7 +2820,13 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
         urgency="normal"
     ))
 
-    return {"message": f"Schedule generated: {len(rounds)} rounds", "rounds": rounds}
+    return {
+        "message": f"Schedule generated: {len(rounds)} rounds",
+        "rounds": rounds,
+        "mode": data.mode or "hybrid",
+        "allow_canadian_doubles": bool(data.allow_canadian_doubles),
+        "optimize": data.optimize or "balanced",
+    }
 
 
 class ScheduleEditRequest(BaseModel):
