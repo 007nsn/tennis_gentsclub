@@ -32,7 +32,7 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'tennis-buddies-secret')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://doubles-ladder.preview.emergentagent.com')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://tennis-gents.preview.emergentagent.com')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '').replace('\\n', '\n')
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_CLAIMS = {"sub": "mailto:admin@tennis-buddies.me"}
@@ -3523,7 +3523,7 @@ app.add_middleware(
         "https://tennis-buddies.me",
         "https://www.tennis-buddies.me",
         "https://match-mixer.emergent.host",
-        "https://doubles-ladder.preview.emergentagent.com",
+        "https://tennis-gents.preview.emergentagent.com",
         "http://localhost:3000",
     ],
     allow_methods=["*"],

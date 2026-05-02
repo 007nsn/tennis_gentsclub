@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import uuid
 
 class TennisBuddiesAPITester:
-    def __init__(self, base_url="https://doubles-ladder.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://tennis-gents.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.token = None
         self.admin_token = None
@@ -681,7 +681,7 @@ class TennisBuddiesAPITester:
 
 def main():
     print("🎾 Starting Tennis Buddies Club API Testing...")
-    print(f"Base URL: https://doubles-ladder.preview.emergentagent.com/api")
+    print(f"Base URL: https://tennis-gents.preview.emergentagent.com/api")
     
     tester = TennisBuddiesAPITester()
     
