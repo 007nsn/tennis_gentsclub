@@ -10,7 +10,9 @@ import { AdminPlayersTab } from './admin/AdminPlayersTab';
 import { AdminContentTab } from './admin/AdminContentTab';
 import { AdminAnnouncementsTab } from './admin/AdminAnnouncementsTab';
 import { AdminSettingsTab } from './admin/AdminSettingsTab';
-import { Shield, Trophy, Calendar, BookOpen, Megaphone, Users, Settings } from 'lucide-react';
+import { AdminMediaCenterTab } from './admin/AdminMediaCenterTab';
+import { AdminVisualEditorTab } from './admin/AdminVisualEditorTab';
+import { Shield, Trophy, Calendar, BookOpen, Megaphone, Users, Settings, MonitorPlay, Palette } from 'lucide-react';
 
 export default function Admin() {
     const navigate = useNavigate();
@@ -62,6 +64,14 @@ export default function Admin() {
                         <Settings className="w-4 h-4" />
                         Settings
                     </TabsTrigger>
+                    <TabsTrigger value="media-center" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2" data-testid="tab-media-center">
+                        <MonitorPlay className="w-4 h-4" />
+                        Media Center
+                    </TabsTrigger>
+                    <TabsTrigger value="visual-editor" className="data-[state=active]:bg-[#0051BA] data-[state=active]:text-white flex items-center gap-2" data-testid="tab-visual-editor">
+                        <Palette className="w-4 h-4" />
+                        Visual Editor
+                    </TabsTrigger>
                 </TabsList>
 
                 <AdminMatchesTab
@@ -109,6 +119,12 @@ export default function Admin() {
                     onSettingsChange={data.setSettings}
                     onSave={data.handleUpdateSettings}
                 />
+
+                <AdminMediaCenterTab
+                    articles={data.articles}
+                />
+
+                <AdminVisualEditorTab />
             </Tabs>
         </div>
     );
