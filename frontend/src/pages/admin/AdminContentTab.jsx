@@ -20,7 +20,7 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
 
     const handleFileUpload = async (file) => {
         if (!file) return;
-        const allowed = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'webp'];
+        const allowed = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'webm', 'mov'];
         const ext = file.name.split('.').pop().toLowerCase();
         if (!allowed.includes(ext)) {
             toast.error(`File type .${ext} not supported. Use: ${allowed.join(', ')}`);
@@ -132,7 +132,7 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                                     ref={fileInputRef}
                                     type="file"
                                     className="hidden"
-                                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.gif,.webp"
+                                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.mov"
                                     onChange={(e) => handleFileUpload(e.target.files[0])}
                                 />
                                 {uploading ? (
@@ -154,7 +154,7 @@ export function AdminContentTab({ articles, loading, onCreateArticle, onDeleteAr
                                     <div className="py-2">
                                         <Upload className="w-8 h-8 mx-auto mb-2 text-gray-300" />
                                         <p className="text-sm text-gray-500">Drag & drop or click to upload</p>
-                                        <p className="text-xs text-gray-400 mt-1">PDF, DOCX, PPTX, images (max 50MB)</p>
+                                        <p className="text-xs text-gray-400 mt-1">PDF, DOCX, PPTX, images, videos (max 50MB)</p>
                                     </div>
                                 )}
                             </div>

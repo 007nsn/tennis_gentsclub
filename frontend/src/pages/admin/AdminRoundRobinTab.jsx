@@ -24,6 +24,9 @@ export function AdminRoundRobinTab({ onClearEvents }) {
     const [newEventDate, setNewEventDate] = useState('');
     const [reminderForm, setReminderForm] = useState({ match_date: '', message: '' });
     const [extNames, setExtNames] = useState({});
+    const [scheduleMode, setScheduleMode] = useState('hybrid');
+    const [allowCanadianDoubles, setAllowCanadianDoubles] = useState(true);
+    const [optimizationMode, setOptimizationMode] = useState('balanced');
 
     const loadEvents = useCallback(async () => {
         try {
@@ -58,7 +61,12 @@ export function AdminRoundRobinTab({ onClearEvents }) {
         }
         setLoading(true);
         try {
-            const res = await generateDoublesSchedule(ev.id, { event_id: ev.id });
+            const res = await generateDoublesSchedule(ev.id, {
+                event_id: ev.id,
+                mode: scheduleMode,
+                allow_canadian_doubles: allowCanadianDoubles,
+                optimize: optimizationMode,
+            });
             toast.success(res.data.message);
             loadEvents();
         } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
@@ -175,6 +183,41 @@ export function AdminRoundRobinTab({ onClearEvents }) {
                             <CardDescription>Players auto-confirm up to court capacity. Manage schedules here.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
+                        <div className="grid md:grid-cols-3 gap-3 bg-gray-50 rounded-lg p-3 border border-gray-100">
+                            <div className="space-y-1">
+                                <Label>Mode</Label>
+                                <Select value={scheduleMode} onValueChange={setScheduleMode}>
+                                    <SelectTrigger data-testid="schedule-mode-select"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="doubles_only">Doubles Only</SelectItem>
+                                        <SelectItem value="hybrid">Hybrid</SelectItem>
+                                        <SelectItem value="singles_only">Singles Only</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1">
+                                <Label>Optimization</Label>
+                                <Select value={optimizationMode} onValueChange={setOptimizationMode}>
+                                    <SelectTrigger data-testid="optimization-mode-select"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="balanced">Balanced</SelectItem>
+                                        <SelectItem value="maximize_play_time">Maximize Play Time</SelectItem>
+                                        <SelectItem value="maximize_fairness">Maximize Fairness</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="flex items-end">
+                                <Button
+                                    type="button"
+                                    variant={allowCanadianDoubles ? 'default' : 'outline'}
+                                    className={allowCanadianDoubles ? 'bg-[#0051BA] hover:bg-[#003E94] w-full' : 'w-full'}
+                                    onClick={() => setAllowCanadianDoubles(prev => !prev)}
+                                    data-testid="toggle-canadian-doubles-btn"
+                                >
+                                    Canadian Doubles: {allowCanadianDoubles ? 'On' : 'Off'}
+                                </Button>
+                            </div>
+                        </div>
                             {events.map(ev => {
                                 const confirmed = getConfirmed(ev);
                                 const bench = getBench(ev);

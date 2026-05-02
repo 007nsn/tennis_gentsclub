@@ -131,6 +131,11 @@ export const newStrategySession = () => api.post('/strategy-bot/new-session');
 // Settings
 export const getSettings = () => api.get('/settings');
 export const updateSettings = (data) => api.put('/settings', data);
+export const getSiteSettings = () => api.get('/site-settings');
+/** Published theme/home content for the public Home page (no admin auth required). */
+export const getPublicSiteSettings = () => api.get('/site-settings/public');
+export const updateSiteSettingsDraft = (data) => api.put('/site-settings/draft', data);
+export const publishSiteSettings = () => api.post('/site-settings/publish');
 
 // Stats
 export const getStats = () => api.get('/stats');

@@ -53,7 +53,29 @@ export function AdminSettingsTab({ settings, onSettingsChange, onSave }) {
                     <CardContent className="space-y-4">
                         <div className="space-y-2">
                             <Label>Number of Courts</Label>
-                            <Input type="number" min="1" max="10" value={settings.num_courts} onChange={(e) => onSettingsChange({ ...settings, num_courts: parseInt(e.target.value) })} data-testid="courts-input" />
+                            <Input type="number" min="1" max="10" value={settings.num_courts ?? 2} onChange={(e) => {
+                                let v = parseInt(e.target.value, 10);
+                                if (Number.isNaN(v)) v = 2;
+                                v = Math.min(10, Math.max(1, v));
+                                onSettingsChange({ ...settings, num_courts: v });
+                            }} data-testid="courts-input" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Round Robin Rounds</Label>
+                            <Input
+                                type="number"
+                                min="1"
+                                max="5"
+                                value={settings.round_robin_rounds ?? 3}
+                                onChange={(e) => {
+                                    let v = parseInt(e.target.value, 10);
+                                    if (Number.isNaN(v)) v = 3;
+                                    v = Math.min(5, Math.max(1, v));
+                                    onSettingsChange({ ...settings, round_robin_rounds: v });
+                                }}
+                                data-testid="round-robin-rounds-input"
+                            />
+                            <p className="text-xs text-muted-foreground">Number of rounds when generating a Sunday doubles schedule (1–5).</p>
                         </div>
                         <div className="space-y-2">
                             <Label>Default Location</Label>
@@ -61,7 +83,12 @@ export function AdminSettingsTab({ settings, onSettingsChange, onSave }) {
                         </div>
                         <div className="space-y-2">
                             <Label>Match Duration (minutes)</Label>
-                            <Input type="number" min="15" max="120" value={settings.match_duration_minutes} onChange={(e) => onSettingsChange({ ...settings, match_duration_minutes: parseInt(e.target.value) })} data-testid="duration-input" />
+                            <Input type="number" min="15" max="120" value={settings.match_duration_minutes ?? 30} onChange={(e) => {
+                                let v = parseInt(e.target.value, 10);
+                                if (Number.isNaN(v)) v = 30;
+                                v = Math.min(120, Math.max(15, v));
+                                onSettingsChange({ ...settings, match_duration_minutes: v });
+                            }} data-testid="duration-input" />
                         </div>
                         <div className="space-y-2">
                             <Label>Default Start Time</Label>

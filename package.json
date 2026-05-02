@@ -1,0 +1,11 @@
+{
+  "name": "final-match-mixer-root",
+  "private": true,
+  "description": "Run frontend dev server from repo root: npm run dev",
+  "scripts": {
+    "start": "npm --prefix frontend run start",
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "test": "npm --prefix frontend run test"
+  }
+}

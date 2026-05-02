@@ -15,6 +15,8 @@ const categoryColors = {
     equipment: 'bg-orange-100 text-orange-800',
 };
 
+const isVideo = (name) => /\.(mp4|webm|mov)$/i.test(name || '');
+
 export default function ArticleDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -150,6 +152,18 @@ export default function ArticleDetail() {
             {article.image_url && !youtubeId && (
                 <Card className="border-none shadow-[0_4px_12px_rgba(0,0,0,0.08)] mb-8 overflow-hidden">
                     <img src={article.image_url} alt={article.title} className="w-full h-auto" />
+                </Card>
+            )}
+
+            {/* Uploaded video */}
+            {fileUrl && user && isVideo(article.file_name) && (
+                <Card className="border-none shadow-[0_4px_12px_rgba(0,0,0,0.08)] mb-8 overflow-hidden" data-testid="video-preview">
+                    <div className="aspect-video bg-black">
+                        <video controls className="w-full h-full" preload="metadata">
+                            <source src={fileUrl} type={article.file_content_type || 'video/mp4'} />
+                            Your browser does not support the video tag.
+                        </video>
+                    </div>
                 </Card>
             )}
 

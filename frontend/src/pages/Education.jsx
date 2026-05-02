@@ -39,6 +39,7 @@ function getYouTubeId(url) {
 function isPdf(name) { return name?.toLowerCase().endsWith('.pdf'); }
 function isPptx(name) { return /\.(ppt|pptx)$/i.test(name || ''); }
 function isImage(name) { return /\.(png|jpg|jpeg|gif|webp)$/i.test(name || ''); }
+function isVideo(name) { return /\.(mp4|webm|mov)$/i.test(name || ''); }
 
 function ContentModal({ article, onClose }) {
     const { user } = useAuth();
@@ -108,6 +109,16 @@ function ContentModal({ article, onClose }) {
                                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                                 allowFullScreen
                             />
+                        </div>
+                    )}
+
+                    {/* Uploaded video */}
+                    {fileUrl && isVideo(article.file_name) && user && !youtubeId && (
+                        <div className="aspect-video bg-black">
+                            <video controls className="w-full h-full" preload="metadata">
+                                <source src={fileUrl} type={article.file_content_type || 'video/mp4'} />
+                                Your browser does not support the video tag.
+                            </video>
                         </div>
                     )}
 
@@ -206,6 +217,19 @@ function ContentCard({ article, onClick, index }) {
                         <FileText className="w-8 h-8 text-red-400" />
                     </div>
                     <span className="text-white/70 text-xs font-medium">PDF Document</span>
+                    <p className="text-white/90 text-sm font-bold mt-2 px-4 text-center line-clamp-2">{article.title}</p>
+                </div>
+            );
+        }
+
+        // Uploaded video file
+        if (article.file_name && isVideo(article.file_name)) {
+            return (
+                <div className={`w-full h-full bg-gradient-to-br ${gradient} flex flex-col items-center justify-center relative`}>
+                    <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm border border-white/20">
+                        <Play className="w-8 h-8 text-red-400 ml-0.5" />
+                    </div>
+                    <span className="text-white/70 text-xs font-medium">Uploaded Video</span>
                     <p className="text-white/90 text-sm font-bold mt-2 px-4 text-center line-clamp-2">{article.title}</p>
                 </div>
             );
