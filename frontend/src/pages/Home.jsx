@@ -5,24 +5,28 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Calendar, Trophy, Users, BookOpen, ArrowRight, Clock, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getSchedules, getAnnouncements, getStats } from '../lib/api';
+import { getSchedules, getAnnouncements, getStats, getPublicSiteSettings } from '../lib/api';
+import { SITE_SETTINGS_DEFAULTS, mergeSitePayload } from '../lib/siteSettingsDefaults';
 
 export default function Home() {
     const { user } = useAuth();
     const [schedules, setSchedules] = useState([]);
     const [announcements, setAnnouncements] = useState([]);
     const [stats, setStats] = useState({ total_members: 0, total_teams: 0, total_matches: 0 });
+    const [site, setSite] = useState(() => SITE_SETTINGS_DEFAULTS);
 
     const loadData = useCallback(async () => {
         try {
-            const [schedulesRes, announcementsRes, statsRes] = await Promise.all([
+            const [schedulesRes, announcementsRes, statsRes, siteRes] = await Promise.all([
                 getSchedules(),
                 getAnnouncements(),
-                getStats()
+                getStats(),
+                getPublicSiteSettings().catch(() => ({ data: { published: null } })),
             ]);
             setSchedules(schedulesRes.data.slice(0, 3));
             setAnnouncements(announcementsRes.data.slice(0, 2));
             setStats(statsRes.data);
+            setSite(mergeSitePayload(SITE_SETTINGS_DEFAULTS, siteRes.data?.published));
         } catch (error) {
             console.error('Error loading data:', error);
         }
@@ -63,6 +67,16 @@ export default function Home() {
         }
     ];
 
+    const { theme, home_content: home, layout_flags: flags } = site;
+    const primary = theme.primary_color;
+    const accent = theme.accent_color;
+
+    const rawTitle = (home.hero_title || SITE_SETTINGS_DEFAULTS.home_content.hero_title).trim();
+    const heroTitleLines = rawTitle.includes('\n')
+        ? rawTitle.split('\n').map((s) => s.trim()).filter(Boolean)
+        : null;
+    const heroTitleWords = rawTitle.split('\n')[0].split(/\s+/).filter(Boolean);
+
     return (
         <div data-testid="home-page">
             {/* Hero Section */}
@@ -71,17 +85,33 @@ export default function Home() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 relative z-10">
                     <div className="grid lg:grid-cols-2 gap-12 items-center">
                         <div className="animate-fade-in">
-                            <Badge className="bg-[#CCFF00] text-[#002040] hover:bg-[#B3E600] mb-6 font-mono text-xs tracking-widest uppercase">
+                            <Badge
+                                className="mb-6 font-mono text-xs tracking-widest uppercase border-0"
+                                style={{ backgroundColor: accent, color: '#002040' }}
+                            >
                                 Sunday Doubles
                             </Badge>
                             <h1 className="font-['Barlow_Condensed'] text-5xl sm:text-6xl lg:text-7xl font-black uppercase tracking-tighter text-[#0F172A] leading-none mb-6">
-                                Tennis<br />
-                                <span className="text-[#0051BA]">Buddies</span><br />
-                                Club
+                                {heroTitleLines ? (
+                                    heroTitleLines.map((line, i) => (
+                                        <span key={i} className="block">
+                                            {line}
+                                        </span>
+                                    ))
+                                ) : (
+                                    <>
+                                        {heroTitleWords.slice(0, -1).join(' ')}
+                                        {heroTitleWords.length > 0 && (
+                                            <>
+                                                {' '}
+                                                <span style={{ color: primary }}>{heroTitleWords[heroTitleWords.length - 1]}</span>
+                                            </>
+                                        )}
+                                    </>
+                                )}
                             </h1>
                             <p className="text-lg text-gray-600 mb-8 max-w-lg">
-                                Your Sunday doubles tennis community. Check schedules, track rankings, 
-                                and improve your game with our coaching resources.
+                                {home.hero_subtitle}
                             </p>
                             <div className="flex flex-wrap gap-4">
                                 {user ? (
@@ -92,9 +122,9 @@ export default function Home() {
                                         </Button>
                                     </Link>
                                 ) : (
-                                    <Link to="/register">
+                                    <Link to={home.hero_cta_url || '/register'}>
                                         <Button className="btn-primary flex items-center gap-2" data-testid="hero-join-btn">
-                                            Join the Club
+                                            {home.hero_cta_label || 'Join the Club'}
                                             <ArrowRight className="w-4 h-4" />
                                         </Button>
                                     </Link>
@@ -114,15 +144,15 @@ export default function Home() {
                                     className="w-full h-[400px] object-cover"
                                 />
                             </div>
-                            <div className="absolute -bottom-6 -left-6 w-48 h-48 bg-[#CCFF00] rounded-2xl -z-10"></div>
-                            <div className="absolute -top-6 -right-6 w-32 h-32 bg-[#0051BA] rounded-full -z-10"></div>
+                            <div className="absolute -bottom-6 -left-6 w-48 h-48 rounded-2xl -z-10" style={{ backgroundColor: accent }} />
+                            <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full -z-10" style={{ backgroundColor: primary }} />
                         </div>
                     </div>
                 </div>
             </section>
 
             {/* Stats Section */}
-            <section className="bg-[#0051BA] py-8">
+            <section className="py-8" style={{ backgroundColor: primary }}>
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="grid grid-cols-3 gap-8 text-center text-white">
                         <div>
@@ -142,7 +172,7 @@ export default function Home() {
             </section>
 
             {/* Announcements */}
-            {announcements.length > 0 && (
+            {flags.show_announcements !== false && announcements.length > 0 && (
                 <section className="py-12 bg-white">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <h2 className="font-['Barlow_Condensed'] text-2xl md:text-3xl font-bold uppercase mb-6">
@@ -150,7 +180,7 @@ export default function Home() {
                         </h2>
                         <div className="space-y-4">
                             {announcements.map(ann => (
-                                <Card key={ann.id} className={`border-l-4 ${ann.priority === 'urgent' ? 'border-l-[#E06040]' : ann.priority === 'high' ? 'border-l-[#CCFF00]' : 'border-l-[#0051BA]'}`}>
+                                <Card key={ann.id} className={`border-l-4 ${ann.priority === 'urgent' ? 'border-l-[#E06040]' : ann.priority === 'high' ? 'border-l-[#CCFF00]' : ''}`} style={ann.priority !== 'urgent' && ann.priority !== 'high' ? { borderLeftColor: primary } : undefined}>
                                     <CardContent className="p-4">
                                         <div className="flex items-start justify-between">
                                             <div>
@@ -199,14 +229,14 @@ export default function Home() {
             </section>
 
             {/* Upcoming Matches */}
-            {schedules.length > 0 && (
+            {flags.show_upcoming_matches !== false && schedules.length > 0 && (
                 <section className="py-16 bg-white">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div className="flex items-center justify-between mb-8">
                             <h2 className="font-['Barlow_Condensed'] text-2xl md:text-3xl font-bold uppercase">
                                 Upcoming Matches
                             </h2>
-                            <Link to="/schedule" className="text-[#0051BA] font-medium flex items-center gap-1 hover:underline">
+                            <Link to="/schedule" className="font-medium flex items-center gap-1 hover:underline" style={{ color: primary }}>
                                 View All <ArrowRight className="w-4 h-4" />
                             </Link>
                         </div>
@@ -239,7 +269,7 @@ export default function Home() {
             {!user && (
                 <section className="py-16">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                        <div className="relative bg-[#0051BA] rounded-3xl overflow-hidden">
+                        <div className="relative rounded-3xl overflow-hidden" style={{ backgroundColor: primary }}>
                             <div className="absolute inset-0 net-texture opacity-10"></div>
                             <div className="grid lg:grid-cols-2 gap-8 p-8 md:p-12 items-center relative z-10">
                                 <div className="text-white">
@@ -269,30 +299,33 @@ export default function Home() {
                 </section>
             )}
             {/* Support Banner */}
+            {flags.show_support_banner !== false && (
             <section className="py-8">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="bg-gradient-to-r from-[#0F172A] to-[#1E293B] rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-[#CCFF00] rounded-full flex items-center justify-center shrink-0">
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: accent }}>
                                 <svg className="w-5 h-5 text-[#002040]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
                             </div>
                             <div>
-                                <p className="text-white font-bold text-sm">Love Tennis Buddies Club?</p>
-                                <p className="text-gray-400 text-xs">Help keep the site running by supporting us on Emergent</p>
+                                <p className="text-white font-bold text-sm">{home.support_text}</p>
+                                <p className="text-gray-400 text-xs">Help keep the site running—thank you for your support.</p>
                             </div>
                         </div>
                         <a
-                            href="https://venmo.com/u/Sergei-Nabatov"
+                            href={home.support_button_url || 'https://venmo.com/u/Sergei-Nabatov'}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#CCFF00] text-[#002040] rounded-lg text-sm font-bold hover:bg-[#B3E600] transition-colors shrink-0"
+                            className="inline-flex items-center gap-2 px-5 py-2.5 text-[#002040] rounded-lg text-sm font-bold hover:opacity-90 transition-opacity shrink-0"
+                            style={{ backgroundColor: accent }}
                             data-testid="home-support-btn"
                         >
-                            Support This Site
+                            {home.support_button_label || 'Support This Site'}
                         </a>
                     </div>
                 </div>
             </section>
+            )}
         </div>
     );
 }

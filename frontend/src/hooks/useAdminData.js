@@ -192,6 +192,8 @@ export function useAdminData() {
     const handleUpdateSettings = useCallback(async (newSettings) => {
         try {
             await updateSettings(newSettings);
+            const res = await getSettings();
+            setSettings(res.data);
             toast.success('Settings saved!');
         } catch (error) {
             toast.error('Failed to save settings');

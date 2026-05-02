@@ -1658,6 +1658,19 @@ def get_default_site_settings() -> dict:
     settings = payload.model_dump()
     return {"type": "site_settings", "draft": settings, "published": settings}
 
+
+@api_router.get("/site-settings/public")
+async def get_public_site_settings():
+    """Published homepage/theme content for visitors (no auth)."""
+    doc = await db.site_settings.find_one({"type": "site_settings"}, {"_id": 0})
+    if not doc:
+        return {"published": SiteSettingsPayload().model_dump()}
+    pub = doc.get("published") or doc.get("draft")
+    if not pub:
+        pub = SiteSettingsPayload().model_dump()
+    return {"published": pub}
+
+
 @api_router.get("/site-settings")
 async def get_site_settings(admin: dict = Depends(get_admin_user)):
     doc = await db.site_settings.find_one({"type": "site_settings"}, {"_id": 0})
@@ -2278,43 +2291,42 @@ async def new_strategy_session(user: dict = Depends(get_current_user)):
 
 # ============ DOUBLES ROUND ROBIN ALGORITHM ============
 
-def generate_doubles_round_robin(players: List[dict], num_courts: int, num_rounds: int = 3) -> List[dict]:
-    """
-    Generate a doubles round robin schedule.
-    - Format: 2v2
-    - Rotate partners every round (no same partner consecutively)
-    - Minimize repeat opponents
-    - Fair bye distribution if not divisible by 4
-    """
+def _schedule_penalties(optimize: str) -> dict:
+    o = (optimize or "balanced").strip().lower()
+    if o == "maximize_play_time":
+        return {"consec": 5, "hist": 2}
+    if o == "maximize_fairness":
+        return {"consec": 20, "hist": 6}
+    return {"consec": 10, "hist": 3}
+
+
+def _generate_doubles_only_round_robin(players: List[dict], num_courts: int, num_rounds: int, optimize: str) -> List[dict]:
+    """2v2 doubles only; remainder players take byes (same shape as legacy)."""
     import random
     n = len(players)
     if n < 4:
         return []
 
+    pens = _schedule_penalties(optimize)
     player_ids = [p["id"] for p in players]
     player_map = {p["id"]: p["name"] for p in players}
     rounds = []
-    partner_history = {}  # track how many times each pair has partnered
-    opponent_history = {}  # track how many times each pair has opposed
+    partner_history = {}
+    opponent_history = {}
     bye_counts = {pid: 0 for pid in player_ids}
-    last_partners = {}  # who each player partnered with last round
+    last_partners = {}
 
     num_rounds = max(1, min(5, int(num_rounds)))
-    players_per_match = 4
-    available_slots = num_courts * players_per_match
+    available_slots = num_courts * 4
 
     for round_num in range(num_rounds):
-        # Select players for this round (handle byes)
         active_count = min(len(player_ids), available_slots)
-        # Make active count divisible by 4
         active_count = (active_count // 4) * 4
 
         if active_count < 4:
             break
 
-        # Choose who sits out (fairest bye distribution)
         if active_count < len(player_ids):
-            # Sort by bye_counts ascending, then shuffle ties
             sorted_players = sorted(player_ids, key=lambda pid: (bye_counts[pid], random.random()))
             active_players = sorted_players[:active_count]
             bye_players = sorted_players[active_count:]
@@ -2324,7 +2336,6 @@ def generate_doubles_round_robin(players: List[dict], num_courts: int, num_round
             active_players = list(player_ids)
             bye_players = []
 
-        # Generate pairings that avoid consecutive same partners
         best_matches = None
         best_score = float('inf')
 
@@ -2340,17 +2351,15 @@ def generate_doubles_round_robin(players: List[dict], num_courts: int, num_round
                 team_a = (p1, p2)
                 team_b = (p3, p4)
 
-                # Penalize same partner as last round
                 pair_a = tuple(sorted(team_a))
                 pair_b = tuple(sorted(team_b))
                 if last_partners.get(p1) == p2 or last_partners.get(p2) == p1:
-                    attempt_score += 10
+                    attempt_score += pens["consec"]
                 if last_partners.get(p3) == p4 or last_partners.get(p4) == p3:
-                    attempt_score += 10
+                    attempt_score += pens["consec"]
 
-                # Penalize repeat partners/opponents
-                attempt_score += partner_history.get(pair_a, 0) * 3
-                attempt_score += partner_history.get(pair_b, 0) * 3
+                attempt_score += partner_history.get(pair_a, 0) * pens["hist"]
+                attempt_score += partner_history.get(pair_b, 0) * pens["hist"]
                 for pa in team_a:
                     for pb in team_b:
                         opp_pair = tuple(sorted((pa, pb)))
@@ -2361,6 +2370,7 @@ def generate_doubles_round_robin(players: List[dict], num_courts: int, num_round
                     "team_a": list(team_a),
                     "team_b": list(team_b),
                     "court": court,
+                    "match_type": "doubles",
                 })
 
             if attempt_score < best_score:
@@ -2370,7 +2380,6 @@ def generate_doubles_round_robin(players: List[dict], num_courts: int, num_round
         if not best_matches:
             continue
 
-        # Update histories
         for m in best_matches:
             pair_a = tuple(sorted(m["team_a"]))
             pair_b = tuple(sorted(m["team_b"]))
@@ -2380,13 +2389,11 @@ def generate_doubles_round_robin(players: List[dict], num_courts: int, num_round
                 for pb in m["team_b"]:
                     opp_pair = tuple(sorted((pa, pb)))
                     opponent_history[opp_pair] = opponent_history.get(opp_pair, 0) + 1
-            # Track last partners
             last_partners[m["team_a"][0]] = m["team_a"][1]
             last_partners[m["team_a"][1]] = m["team_a"][0]
             last_partners[m["team_b"][0]] = m["team_b"][1]
             last_partners[m["team_b"][1]] = m["team_b"][0]
 
-        # Build round data
         round_data = {
             "round": round_num + 1,
             "matches": [],
@@ -2397,10 +2404,304 @@ def generate_doubles_round_robin(players: List[dict], num_courts: int, num_round
                 "court": m["court"],
                 "team_a": [{"id": pid, "name": player_map[pid]} for pid in m["team_a"]],
                 "team_b": [{"id": pid, "name": player_map[pid]} for pid in m["team_b"]],
+                "match_type": m.get("match_type", "doubles"),
             })
         rounds.append(round_data)
 
     return rounds
+
+
+def _generate_singles_round_robin(players: List[dict], num_courts: int, num_rounds: int, optimize: str) -> List[dict]:
+    """1v1 singles; teams are length-1 player lists for UI compatibility."""
+    import random
+    n = len(players)
+    if n < 2:
+        return []
+
+    pens = _schedule_penalties(optimize)
+    player_ids = [p["id"] for p in players]
+    player_map = {p["id"]: p["name"] for p in players}
+    opponent_history = {}
+    bye_counts = {pid: 0 for pid in player_ids}
+    rounds = []
+    num_rounds = max(1, min(5, int(num_rounds)))
+
+    for round_num in range(num_rounds):
+        max_players = num_courts * 2
+        active_count = min(n, max_players)
+        active_count = (active_count // 2) * 2
+
+        if active_count < 2:
+            break
+
+        if active_count < n:
+            sorted_players = sorted(player_ids, key=lambda pid: (bye_counts[pid], random.random()))
+            active_players = sorted_players[:active_count]
+            bye_players = sorted_players[active_count:]
+            for bp in bye_players:
+                bye_counts[bp] += 1
+        else:
+            active_players = list(player_ids)
+            bye_players = []
+
+        best_matches = None
+        best_score = float('inf')
+
+        for attempt in range(50):
+            random.shuffle(active_players)
+            matches = []
+            attempt_score = 0
+            for i in range(0, len(active_players), 2):
+                if i + 1 >= len(active_players):
+                    break
+                p1, p2 = active_players[i], active_players[i + 1]
+                opp_pair = tuple(sorted((p1, p2)))
+                attempt_score += opponent_history.get(opp_pair, 0) * pens["hist"]
+                court = (len(matches) % num_courts) + 1
+                matches.append({
+                    "team_a": [p1],
+                    "team_b": [p2],
+                    "court": court,
+                    "match_type": "singles",
+                })
+
+            if attempt_score < best_score:
+                best_score = attempt_score
+                best_matches = matches
+
+        if not best_matches:
+            continue
+
+        for m in best_matches:
+            p1, p2 = m["team_a"][0], m["team_b"][0]
+            opp_pair = tuple(sorted((p1, p2)))
+            opponent_history[opp_pair] = opponent_history.get(opp_pair, 0) + 1
+
+        round_data = {
+            "round": round_num + 1,
+            "matches": [],
+            "byes": [{"id": bp, "name": player_map[bp]} for bp in bye_players]
+        }
+        for m in best_matches:
+            round_data["matches"].append({
+                "court": m["court"],
+                "team_a": [{"id": pid, "name": player_map[pid]} for pid in m["team_a"]],
+                "team_b": [{"id": pid, "name": player_map[pid]} for pid in m["team_b"]],
+                "match_type": "singles",
+            })
+        rounds.append(round_data)
+
+    return rounds
+
+
+def _hybrid_assign_round(
+    pool: List[str],
+    num_courts: int,
+    partner_history: dict,
+    opponent_history: dict,
+    last_partners: dict,
+    pens: dict,
+    allow_canadian_doubles: bool,
+) -> tuple:
+    """Greedily assign doubles, then singles, then optional Canadian (2v1). Returns (matches_raw, remaining_ids)."""
+    import random
+    remaining = list(pool)
+    matches_raw = []
+    courts_left = num_courts
+
+    while courts_left > 0 and len(remaining) >= 4:
+        best_pick = None
+        best_score = float('inf')
+        for _ in range(45):
+            random.shuffle(remaining)
+            p1, p2, p3, p4 = remaining[0], remaining[1], remaining[2], remaining[3]
+            team_a = (p1, p2)
+            team_b = (p3, p4)
+            pair_a = tuple(sorted(team_a))
+            pair_b = tuple(sorted(team_b))
+            sc = 0
+            if last_partners.get(p1) == p2 or last_partners.get(p2) == p1:
+                sc += pens["consec"]
+            if last_partners.get(p3) == p4 or last_partners.get(p4) == p3:
+                sc += pens["consec"]
+            sc += partner_history.get(pair_a, 0) * pens["hist"]
+            sc += partner_history.get(pair_b, 0) * pens["hist"]
+            for pa in team_a:
+                for pb in team_b:
+                    sc += opponent_history.get(tuple(sorted((pa, pb))), 0)
+            if sc < best_score:
+                best_score = sc
+                best_pick = [p1, p2, p3, p4]
+
+        if not best_pick:
+            break
+        for x in best_pick:
+            remaining.remove(x)
+        matches_raw.append({
+            "match_type": "doubles",
+            "team_a": best_pick[:2],
+            "team_b": best_pick[2:],
+            "court": len(matches_raw) + 1,
+        })
+        courts_left -= 1
+
+    while courts_left > 0 and len(remaining) >= 2:
+        best_pair = None
+        best_sc = float('inf')
+        for _ in range(35):
+            random.shuffle(remaining)
+            p1, p2 = remaining[0], remaining[1]
+            sc = opponent_history.get(tuple(sorted((p1, p2))), 0) * pens["hist"]
+            if sc < best_sc:
+                best_sc = sc
+                best_pair = (p1, p2)
+        if not best_pair:
+            break
+        p1, p2 = best_pair
+        remaining.remove(p1)
+        remaining.remove(p2)
+        matches_raw.append({
+            "match_type": "singles",
+            "team_a": [p1],
+            "team_b": [p2],
+            "court": len(matches_raw) + 1,
+        })
+        courts_left -= 1
+
+    if courts_left > 0 and len(remaining) == 3 and allow_canadian_doubles:
+        random.shuffle(remaining)
+        a1, a2, solo = remaining[0], remaining[1], remaining[2]
+        matches_raw.append({
+            "match_type": "canadian_doubles",
+            "team_a": [a1, a2],
+            "team_b": [solo],
+            "court": len(matches_raw) + 1,
+        })
+        remaining = []
+
+    return matches_raw, remaining
+
+
+def _apply_match_histories(matches_raw: List[dict], partner_history: dict, opponent_history: dict, last_partners: dict) -> None:
+    for m in matches_raw:
+        mt = m["match_type"]
+        ta = m["team_a"]
+        tb = m["team_b"]
+        if mt == "doubles":
+            pair_a = tuple(sorted(ta))
+            pair_b = tuple(sorted(tb))
+            partner_history[pair_a] = partner_history.get(pair_a, 0) + 1
+            partner_history[pair_b] = partner_history.get(pair_b, 0) + 1
+            for pa in ta:
+                for pb in tb:
+                    opp = tuple(sorted((pa, pb)))
+                    opponent_history[opp] = opponent_history.get(opp, 0) + 1
+            last_partners[ta[0]] = ta[1]
+            last_partners[ta[1]] = ta[0]
+            last_partners[tb[0]] = tb[1]
+            last_partners[tb[1]] = tb[0]
+        elif mt == "singles":
+            p1, p2 = ta[0], tb[0]
+            opponent_history[tuple(sorted((p1, p2)))] = opponent_history.get(tuple(sorted((p1, p2))), 0) + 1
+        elif mt == "canadian_doubles":
+            pair_a = tuple(sorted(ta))
+            partner_history[pair_a] = partner_history.get(pair_a, 0) + 1
+            solo = tb[0]
+            for pa in ta:
+                opp = tuple(sorted((pa, solo)))
+                opponent_history[opp] = opponent_history.get(opp, 0) + 1
+            last_partners[ta[0]] = ta[1]
+            last_partners[ta[1]] = ta[0]
+
+
+def _generate_hybrid_round_robin(
+    players: List[dict],
+    num_courts: int,
+    num_rounds: int,
+    allow_canadian_doubles: bool,
+    optimize: str,
+) -> List[dict]:
+    """Mix doubles, singles, and optional Canadian doubles based on player/court counts."""
+    import random
+    n = len(players)
+    if n < 2:
+        return []
+
+    pens = _schedule_penalties(optimize)
+    player_ids = [p["id"] for p in players]
+    player_map = {p["id"]: p["name"] for p in players}
+    partner_history = {}
+    opponent_history = {}
+    bye_counts = {pid: 0 for pid in player_ids}
+    last_partners = {}
+    rounds = []
+    num_rounds = max(1, min(5, int(num_rounds)))
+
+    for round_num in range(num_rounds):
+        active_count = min(n, num_courts * 4)
+        if active_count < 2:
+            break
+
+        if active_count < n:
+            sorted_players = sorted(player_ids, key=lambda pid: (bye_counts[pid], random.random()))
+            active_pool = sorted_players[:active_count]
+            bye_players = sorted_players[active_count:]
+            for bp in bye_players:
+                bye_counts[bp] += 1
+        else:
+            active_pool = list(player_ids)
+            bye_players = []
+
+        matches_raw, leftover = _hybrid_assign_round(
+            active_pool, num_courts, partner_history, opponent_history, last_partners, pens, allow_canadian_doubles
+        )
+        for pid in leftover:
+            bye_players.append(pid)
+            bye_counts[pid] += 1
+
+        if not matches_raw:
+            continue
+
+        _apply_match_histories(matches_raw, partner_history, opponent_history, last_partners)
+
+        round_data = {
+            "round": round_num + 1,
+            "matches": [],
+            "byes": [{"id": bp, "name": player_map[bp]} for bp in bye_players],
+        }
+        for m in matches_raw:
+            round_data["matches"].append({
+                "court": m["court"],
+                "team_a": [{"id": pid, "name": player_map[pid]} for pid in m["team_a"]],
+                "team_b": [{"id": pid, "name": player_map[pid]} for pid in m["team_b"]],
+                "match_type": m["match_type"],
+            })
+        rounds.append(round_data)
+
+    return rounds
+
+
+def generate_doubles_round_robin(
+    players: List[dict],
+    num_courts: int,
+    num_rounds: int = 3,
+    mode: str = "hybrid",
+    allow_canadian_doubles: bool = True,
+    optimize: str = "balanced",
+) -> List[dict]:
+    """
+    Weekly schedule generation.
+    mode: doubles_only | singles_only | hybrid
+    optimize: balanced | maximize_play_time | maximize_fairness (tunes scoring penalties)
+    """
+    mode = (mode or "hybrid").strip().lower()
+    if mode not in ("doubles_only", "hybrid", "singles_only"):
+        mode = "hybrid"
+    if mode == "singles_only":
+        return _generate_singles_round_robin(players, num_courts, num_rounds, optimize)
+    if mode == "doubles_only":
+        return _generate_doubles_only_round_robin(players, num_courts, num_rounds, optimize)
+    return _generate_hybrid_round_robin(players, num_courts, num_rounds, allow_canadian_doubles, optimize)
 
 
 # ============ WEEKLY CHECK-IN & EVENT ROUTES ============
@@ -2408,7 +2709,7 @@ def generate_doubles_round_robin(players: List[dict], num_courts: int, num_round
 @api_router.post("/weekly-events")
 async def create_weekly_event(data: WeeklyEventCreate, admin: dict = Depends(get_admin_user)):
     """Admin creates a Sunday event"""
-    settings = await db.settings.find_one({}, {"_id": 0}) or {}
+    settings = await db.settings.find_one({"type": "club"}, {"_id": 0}) or {}
     event_id = str(uuid.uuid4())
     event = {
         "id": event_id,
@@ -2766,8 +3067,20 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
     st = data.start_time or event.get("start_time") or settings.get("default_start_time", "09:00")
     dur = data.match_duration_minutes or settings.get("match_duration_minutes", 30)
     rr_rounds = max(1, min(5, int(settings.get("round_robin_rounds", 3))))
+    sch_mode = (data.mode or "hybrid").strip().lower()
+    if sch_mode not in ("doubles_only", "hybrid", "singles_only"):
+        sch_mode = "hybrid"
+    allow_cd = True if data.allow_canadian_doubles is None else bool(data.allow_canadian_doubles)
+    sch_opt = (data.optimize or "balanced").strip().lower()
 
-    rounds = generate_doubles_round_robin(confirmed, nc, rr_rounds)
+    rounds = generate_doubles_round_robin(
+        confirmed,
+        nc,
+        rr_rounds,
+        mode=sch_mode,
+        allow_canadian_doubles=allow_cd,
+        optimize=sch_opt,
+    )
 
     start_hour, start_min = map(int, st.split(":"))
     for r in rounds:
@@ -2796,7 +3109,9 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
         for m in r["matches"]:
             ta = " & ".join([p["name"] for p in m["team_a"]])
             tb = " & ".join([p["name"] for p in m["team_b"]])
-            lines.append(f"  Court {m['court']}: {ta}  vs  {tb}")
+            mt = m.get("match_type", "doubles")
+            label = {"singles": "[Singles] ", "canadian_doubles": "[Canadian] ", "doubles": ""}.get(mt, "")
+            lines.append(f"  Court {m['court']}: {label}{ta}  vs  {tb}")
         if r.get("byes"):
             lines.append(f"  Bye: {', '.join([b['name'] for b in r['byes']])}")
 
