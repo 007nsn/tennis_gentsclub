@@ -29,6 +29,12 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'tennis-buddies-secret')
+# Ensure HS256 signing key is at least 32 bytes per RFC 7518 §3.2 to suppress
+# pyjwt InsecureKeyLengthWarning. Deterministic derivation keeps tokens stable
+# across restarts so long as the underlying JWT_SECRET env var is unchanged.
+if len(JWT_SECRET.encode('utf-8')) < 32:
+    import hashlib
+    JWT_SECRET = hashlib.sha256(JWT_SECRET.encode('utf-8')).hexdigest()
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
