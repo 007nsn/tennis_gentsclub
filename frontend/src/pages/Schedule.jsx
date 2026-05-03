@@ -546,7 +546,7 @@ export default function Schedule() {
         const daysUntilSunday = (7 - d.getDay()) % 7;
         d.setDate(d.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday));
         for (let i = 0; i < 4; i++) {
-            sundays.push(new Date(d).toISOString().split('T')[0]);
+            sundays.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
             d.setDate(d.getDate() + 7);
         }
         return sundays;
