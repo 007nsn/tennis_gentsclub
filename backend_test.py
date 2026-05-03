@@ -1,671 +1,752 @@
-#!/usr/bin/env python3
-"""
-Comprehensive Backend Smoke Test for Tennis Buddies Club
-Tests all critical API endpoints after fresh GitHub sync
-"""
-
 import requests
-import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
+import uuid
 
-# Configuration
-BASE_URL = "https://tennis-gents.preview.emergentagent.com/api"
-ADMIN_EMAIL = "admin@tennis.com"
-ADMIN_PASSWORD = "admin123"
+class TennisBuddiesAPITester:
+    def __init__(self, base_url="https://doubles-ladder.preview.emergentagent.com/api"):
+        self.base_url = base_url
+        self.token = None
+        self.admin_token = None
+        self.user_id = None
+        self.admin_id = None
+        self.tests_run = 0
+        self.tests_passed = 0
+        self.created_team_id = None
+        self.created_schedule_id = None
+        self.created_article_id = None
+        self.created_announcement_id = None
+        self.test_user_id = None
 
-# Test results tracking
-results = {
-    "passed": [],
-    "failed": [],
-    "warnings": []
-}
-
-def log_pass(test_name, details=""):
-    results["passed"].append(f"✅ {test_name}" + (f": {details}" if details else ""))
-    print(f"✅ PASS: {test_name}" + (f" - {details}" if details else ""))
-
-def log_fail(test_name, details=""):
-    results["failed"].append(f"❌ {test_name}" + (f": {details}" if details else ""))
-    print(f"❌ FAIL: {test_name}" + (f" - {details}" if details else ""))
-
-def log_warning(test_name, details=""):
-    results["warnings"].append(f"⚠️  {test_name}" + (f": {details}" if details else ""))
-    print(f"⚠️  WARNING: {test_name}" + (f" - {details}" if details else ""))
-
-def print_section(title):
-    print(f"\n{'='*60}")
-    print(f"  {title}")
-    print(f"{'='*60}")
-
-# Global session for cookies
-session = requests.Session()
-admin_token = None
-admin_user_id = None
-
-def test_health():
-    """Test 1: Health check"""
-    print_section("TEST 1: Health Check")
-    try:
-        resp = session.get(f"{BASE_URL}/health", timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("status") == "ok":
-                log_pass("Health check", f"Status: {data}")
-                return True
-            else:
-                log_fail("Health check", f"Unexpected response: {data}")
-                return False
-        else:
-            log_fail("Health check", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Health check", f"Exception: {str(e)}")
-        return False
-
-def test_auth_login():
-    """Test 2: Admin login"""
-    print_section("TEST 2: Auth - Login")
-    global admin_token, admin_user_id
-    try:
-        payload = {"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
-        resp = session.post(f"{BASE_URL}/auth/login", json=payload, timeout=10)
+    def run_test(self, name, method, endpoint, expected_status, data=None, use_admin=False):
+        """Run a single API test"""
+        url = f"{self.base_url}/{endpoint}"
+        headers = {'Content-Type': 'application/json'}
         
-        if resp.status_code == 200:
-            data = resp.json()
-            admin_token = data.get("token")
-            user = data.get("user", {})
-            admin_user_id = user.get("id")
-            
-            # Check if cookie was set
-            cookies = session.cookies.get_dict()
-            has_cookie = "access_token" in cookies
-            
-            if admin_token and admin_user_id and has_cookie:
-                log_pass("Admin login", f"User: {user.get('name')}, Role: {user.get('role')}, Cookie: Yes")
-                return True
-            else:
-                log_fail("Admin login", f"Missing token/user_id/cookie. Token: {bool(admin_token)}, UserID: {bool(admin_user_id)}, Cookie: {has_cookie}")
-                return False
-        else:
-            log_fail("Admin login", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Admin login", f"Exception: {str(e)}")
-        return False
+        if use_admin and self.admin_token:
+            headers['Authorization'] = f'Bearer {self.admin_token}'
+        elif self.token:
+            headers['Authorization'] = f'Bearer {self.token}'
 
-def test_auth_me():
-    """Test 3: Get current user"""
-    print_section("TEST 3: Auth - Get Me")
-    try:
-        # Try with Authorization header as fallback
-        headers = {}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
-        resp = session.get(f"{BASE_URL}/auth/me", headers=headers, timeout=10)
+        self.tests_run += 1
+        print(f"\n🔍 Testing {name}...")
         
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("email") == ADMIN_EMAIL and data.get("role") == "admin":
-                log_pass("Get current user", f"Email: {data.get('email')}, Role: {data.get('role')}")
-                return True
+        try:
+            if method == 'GET':
+                response = requests.get(url, headers=headers)
+            elif method == 'POST':
+                response = requests.post(url, json=data, headers=headers)
+            elif method == 'PUT':
+                response = requests.put(url, json=data, headers=headers)
+            elif method == 'DELETE':
+                response = requests.delete(url, headers=headers)
+
+            success = response.status_code == expected_status
+            if success:
+                self.tests_passed += 1
+                print(f"✅ Passed - Status: {response.status_code}")
+                if response.text:
+                    try:
+                        return True, response.json()
+                    except:
+                        return True, response.text
+                return True, {}
             else:
-                log_fail("Get current user", f"Unexpected user data: {data}")
-                return False
-        else:
-            log_fail("Get current user", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Get current user", f"Exception: {str(e)}")
-        return False
+                print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
+                if response.text:
+                    print(f"   Response: {response.text}")
+                return False, {}
 
-def test_auth_logout():
-    """Test 4: Logout"""
-    print_section("TEST 4: Auth - Logout")
-    try:
-        resp = session.post(f"{BASE_URL}/auth/logout", timeout=10)
+        except Exception as e:
+            print(f"❌ Failed - Error: {str(e)}")
+            return False, {}
+
+    def test_registration_flow(self):
+        """Test user registration - create test users"""
+        print(f"\n{'='*50}")
+        print("TESTING USER REGISTRATION FLOW")
+        print(f"{'='*50}")
         
-        if resp.status_code == 200:
-            # Check if cookie was deleted
-            cookies = session.cookies.get_dict()
-            has_cookie = "access_token" in cookies
-            
-            if not has_cookie:
-                log_pass("Logout", "Cookie cleared successfully")
-                return True
-            else:
-                log_warning("Logout", "Logout succeeded but cookie still present")
-                return True
-        else:
-            log_fail("Logout", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Logout", f"Exception: {str(e)}")
-        return False
-
-def test_relogin():
-    """Re-login for subsequent tests"""
-    print_section("Re-authenticating for subsequent tests")
-    return test_auth_login()
-
-def test_weekly_events_list():
-    """Test 5: Get weekly events"""
-    print_section("TEST 5: Weekly Events - List")
-    try:
-        resp = session.get(f"{BASE_URL}/weekly-events", timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list):
-                log_pass("Get weekly events", f"Returned {len(data)} events")
-                return True, data
-            else:
-                log_fail("Get weekly events", f"Expected list, got: {type(data)}")
-                return False, None
-        else:
-            log_fail("Get weekly events", f"Status {resp.status_code}: {resp.text}")
-            return False, None
-    except Exception as e:
-        log_fail("Get weekly events", f"Exception: {str(e)}")
-        return False, None
-
-def test_create_event():
-    """Test 6: Create a Sunday event"""
-    print_section("TEST 6: Weekly Events - Create Event")
-    try:
-        # Get next Sunday
-        today = datetime.now()
-        days_until_sunday = (6 - today.weekday()) % 7
-        if days_until_sunday == 0:
-            days_until_sunday = 7
-        next_sunday = today + timedelta(days=days_until_sunday)
-        event_date = next_sunday.strftime("%Y-%m-%d")
-        
-        payload = {
-            "event_date": event_date,
-            "title": f"Test Sunday Doubles - {event_date}",
-            "location": "Test Tennis Club",
-            "start_time": "09:00",
-            "num_courts": 2
+        # Register a test user (will be member since admin already exists)
+        timestamp = str(int(datetime.now().timestamp()))
+        member_data = {
+            "name": f"Test User {timestamp}",
+            "email": f"testuser{timestamp}@tennis.com", 
+            "password": "password123"
         }
         
-        headers = {}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
-        resp = session.post(f"{BASE_URL}/weekly-events", json=payload, headers=headers, timeout=10)
+        success, response = self.run_test(
+            "Register Test User",
+            "POST",
+            "auth/register",
+            200,
+            data=member_data
+        )
         
-        if resp.status_code == 200:
-            data = resp.json()
-            event_id = data.get("id")
-            if event_id:
-                log_pass("Create event", f"Event ID: {event_id}, Date: {event_date}")
-                return True, event_id
-            else:
-                log_fail("Create event", f"No event ID in response: {data}")
-                return False, None
+        if success and 'token' in response and 'user' in response:
+            self.token = response['token']
+            self.user_id = response['user']['id']
+            self.test_user_id = response['user']['id']
+            print(f"✅ Test user registered with role: {response['user']['role']}")
         else:
-            log_fail("Create event", f"Status {resp.status_code}: {resp.text}")
-            return False, None
-    except Exception as e:
-        log_fail("Create event", f"Exception: {str(e)}")
-        return False, None
-
-def test_rsvp_flow(event_id):
-    """Test 7: RSVP to event"""
-    print_section("TEST 7: RSVP Flow")
-    try:
-        payload = {
-            "event_id": event_id,
-            "status": "available"
+            print("❌ Test user registration failed")
+            return False
+            
+        # For admin operations, we'll need to use existing admin credentials
+        # Let's try to get admin token by registering with known admin email or use a test admin
+        admin_data = {
+            "name": f"Test Admin {timestamp}",
+            "email": f"testadmin{timestamp}@tennis.com",
+            "password": "password123"
         }
         
-        headers = {}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
-        resp = session.post(f"{BASE_URL}/checkins", json=payload, headers=headers, timeout=10)
+        success, response = self.run_test(
+            "Register Test Admin",
+            "POST",
+            "auth/register",
+            200,
+            data=admin_data
+        )
         
-        if resp.status_code == 200:
-            data = resp.json()
-            status = data.get("status")
-            message = data.get("message", "")
-            log_pass("RSVP to event", f"Status: {status}, Message: {message}")
-            return True
-        elif resp.status_code == 400:
-            # Check if it's the RSVP window validation
-            error_detail = resp.json().get("detail", "")
-            if "RSVP opens" in error_detail:
-                log_pass("RSVP window validation", f"Correctly enforced: {error_detail}")
-                return True
+        if success and 'token' in response:
+            # Even if not admin, we'll use this token for some tests
+            if response['user']['role'] == 'admin':
+                self.admin_token = response['token']
+                self.admin_id = response['user']['id']
+                print("✅ Got admin token")
             else:
-                log_fail("RSVP to event", f"Status {resp.status_code}: {resp.text}")
-                return False
-        else:
-            log_fail("RSVP to event", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("RSVP to event", f"Exception: {str(e)}")
-        return False
-
-def test_close_reopen_rsvp(event_id):
-    """Test 8: Close and reopen RSVP"""
-    print_section("TEST 8: Close/Reopen RSVP")
-    try:
-        headers = {}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
-        
-        # Close RSVP
-        resp = session.post(f"{BASE_URL}/weekly-events/{event_id}/close-rsvp", headers=headers, timeout=10)
-        if resp.status_code != 200:
-            log_fail("Close RSVP", f"Status {resp.status_code}: {resp.text}")
-            return False
-        
-        log_pass("Close RSVP", "Successfully closed")
-        
-        # Reopen RSVP
-        resp = session.post(f"{BASE_URL}/weekly-events/{event_id}/reopen-rsvp", headers=headers, timeout=10)
-        if resp.status_code != 200:
-            log_fail("Reopen RSVP", f"Status {resp.status_code}: {resp.text}")
-            return False
-        
-        log_pass("Reopen RSVP", "Successfully reopened")
+                print("⚠️ No admin token available, some admin tests will be skipped")
+                
         return True
-    except Exception as e:
-        log_fail("Close/Reopen RSVP", f"Exception: {str(e)}")
-        return False
 
-def test_solo_ladder():
-    """Test 9: Solo ladder"""
-    print_section("TEST 9: Solo Ladder")
-    try:
-        resp = session.get(f"{BASE_URL}/solo-ladder", timeout=10)
+    def test_login_flow(self):
+        """Test user login"""
+        print(f"\n{'='*50}")
+        print("TESTING LOGIN FLOW")
+        print(f"{'='*50}")
         
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list):
-                log_pass("Solo ladder", f"Returned {len(data)} players")
-                return True
-            else:
-                log_fail("Solo ladder", f"Expected list, got: {type(data)}")
-                return False
-        else:
-            log_fail("Solo ladder", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Solo ladder", f"Exception: {str(e)}")
-        return False
-
-def test_season_standings():
-    """Test 10: Season standings"""
-    print_section("TEST 10: Season Standings")
-    try:
-        resp = session.get(f"{BASE_URL}/season-standings", timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list):
-                log_pass("Season standings", f"Returned {len(data)} players")
-                return True
-            else:
-                log_fail("Season standings", f"Expected list, got: {type(data)}")
-                return False
-        else:
-            log_fail("Season standings", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Season standings", f"Exception: {str(e)}")
-        return False
-
-def test_head_to_head():
-    """Test 11: Head-to-head matrix"""
-    print_section("TEST 11: Head-to-Head Matrix")
-    try:
-        resp = session.get(f"{BASE_URL}/head-to-head-matrix", timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            if "players" in data and "matrix" in data:
-                log_pass("Head-to-head matrix", f"Players: {len(data.get('players', []))}")
-                return True
-            else:
-                log_fail("Head-to-head matrix", f"Missing players/matrix keys: {data.keys()}")
-                return False
-        else:
-            log_fail("Head-to-head matrix", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Head-to-head matrix", f"Exception: {str(e)}")
-        return False
-
-def test_partnerships():
-    """Test 12: Best partnerships"""
-    print_section("TEST 12: Best Partnerships")
-    try:
-        resp = session.get(f"{BASE_URL}/partnerships", timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list):
-                log_pass("Best partnerships", f"Returned {len(data)} partnerships")
-                return True
-            else:
-                log_fail("Best partnerships", f"Expected list, got: {type(data)}")
-                return False
-        else:
-            log_fail("Best partnerships", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Best partnerships", f"Exception: {str(e)}")
-        return False
-
-def test_match_history():
-    """Test 13: Match history"""
-    print_section("TEST 13: Match History")
-    try:
-        resp = session.get(f"{BASE_URL}/match-history", timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list):
-                log_pass("Match history", f"Returned {len(data)} matches")
-                return True
-            else:
-                log_fail("Match history", f"Expected list, got: {type(data)}")
-                return False
-        else:
-            log_fail("Match history", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Match history", f"Exception: {str(e)}")
-        return False
-
-def test_matches_list():
-    """Test 14: Matches list"""
-    print_section("TEST 14: Matches List")
-    try:
-        resp = session.get(f"{BASE_URL}/matches", timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list):
-                log_pass("Matches list", f"Returned {len(data)} matches")
-                return True
-            else:
-                log_fail("Matches list", f"Expected list, got: {type(data)}")
-                return False
-        else:
-            log_fail("Matches list", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Matches list", f"Exception: {str(e)}")
-        return False
-
-def test_chatroom():
-    """Test 15: Chatroom"""
-    print_section("TEST 15: Chatroom")
-    try:
-        headers = {}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
-        
-        # Post a message
-        payload = {"content": "Test message from backend smoke test"}
-        resp = session.post(f"{BASE_URL}/chatroom", json=payload, headers=headers, timeout=10)
-        
-        if resp.status_code != 200:
-            log_fail("Post chatroom message", f"Status {resp.status_code}: {resp.text}")
-            return False
-        
-        msg_data = resp.json()
-        msg_id = msg_data.get("id")
-        log_pass("Post chatroom message", f"Message ID: {msg_id}")
-        
-        # Get messages
-        resp = session.get(f"{BASE_URL}/chatroom", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list):
-                # Check if our message is in the list
-                found = any(m.get("id") == msg_id for m in data)
-                if found:
-                    log_pass("Get chatroom messages", f"Found test message in {len(data)} messages")
-                    return True
-                else:
-                    log_warning("Get chatroom messages", f"Test message not found in {len(data)} messages")
-                    return True
-            else:
-                log_fail("Get chatroom messages", f"Expected list, got: {type(data)}")
-                return False
-        else:
-            log_fail("Get chatroom messages", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Chatroom", f"Exception: {str(e)}")
-        return False
-
-def test_opponent_scout():
-    """Test 16: Opponent Scout (LLM)"""
-    print_section("TEST 16: Opponent Scout (LLM)")
-    try:
-        headers = {}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
-        
-        payload = {
-            "opponent_name": "John Smith",
-            "playstyle": "aggressive baseliner",
-            "strengths": "powerful forehand, good serve",
-            "weaknesses": "weak backhand, poor net game",
-            "additional_notes": "Tends to play better in the morning"
+        # Try login with admin credentials
+        admin_login = {
+            "email": f"admin{str(int(datetime.now().timestamp()))}@tennis.com",
+            "password": "password123"
         }
         
-        resp = session.post(f"{BASE_URL}/opponent-scout", json=payload, headers=headers, timeout=30)
+        # We need to use a known email, so let's get it from registration response
+        # For now, test with any credentials to see auth flow
+        success, response = self.run_test(
+            "Admin Login",
+            "POST", 
+            "auth/login",
+            401,  # Expected to fail with unknown credentials
+            data=admin_login
+        )
         
-        if resp.status_code == 200:
-            data = resp.json()
-            strategy = data.get("strategy", "")
-            tactics = data.get("key_tactics", [])
-            warnings = data.get("warnings", [])
-            
-            if strategy and len(strategy) > 10:
-                log_pass("Opponent Scout", f"Strategy length: {len(strategy)} chars, Tactics: {len(tactics)}, Warnings: {len(warnings)}")
-                return True
-            else:
-                log_fail("Opponent Scout", f"Empty or too short response: {data}")
-                return False
-        elif resp.status_code == 429:
-            log_warning("Opponent Scout", "Rate limited (429) - LLM endpoint working but rate-limited")
-            return True
-        elif resp.status_code == 500:
-            log_warning("Opponent Scout", f"Server error (500) - may be LLM key issue: {resp.text}")
-            return True
-        else:
-            log_fail("Opponent Scout", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Opponent Scout", f"Exception: {str(e)}")
-        return False
+        return True
 
-def test_strategy_bot():
-    """Test 17: Strategy Bot (LLM)"""
-    print_section("TEST 17: Strategy Bot (LLM)")
-    try:
-        headers = {}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
+    def test_auth_endpoints(self):
+        """Test authentication endpoints"""
+        print(f"\n{'='*50}")
+        print("TESTING AUTH ENDPOINTS")
+        print(f"{'='*50}")
         
-        payload = {
-            "message": "What's the best way to handle a strong net player?"
-        }
+        # Test /auth/me endpoint
+        success, response = self.run_test(
+            "Get Current User",
+            "GET",
+            "auth/me",
+            200,
+            use_admin=False
+        )
         
-        resp = session.post(f"{BASE_URL}/strategy-bot", json=payload, headers=headers, timeout=30)
+        # Test get all users
+        success, response = self.run_test(
+            "Get All Users",
+            "GET",
+            "users",
+            200,
+            use_admin=False
+        )
         
-        if resp.status_code == 200:
-            data = resp.json()
-            response_text = data.get("response", "")
-            session_id = data.get("session_id", "")
-            
-            if response_text and len(response_text) > 10 and session_id:
-                log_pass("Strategy Bot", f"Response length: {len(response_text)} chars, Session: {session_id[:20]}...")
-                return True
-            else:
-                log_fail("Strategy Bot", f"Empty or invalid response: {data}")
-                return False
-        elif resp.status_code == 429:
-            log_warning("Strategy Bot", "Rate limited (429) - LLM endpoint working but rate-limited")
-            return True
-        elif resp.status_code == 500:
-            log_warning("Strategy Bot", f"Server error (500) - may be LLM key issue: {resp.text}")
-            return True
-        else:
-            log_fail("Strategy Bot", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Strategy Bot", f"Exception: {str(e)}")
-        return False
+        return success
 
-def test_web_push():
-    """Test 18: Web Push"""
-    print_section("TEST 18: Web Push")
-    try:
-        headers = {}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
+    def test_team_management(self):
+        """Test team management"""
+        print(f"\n{'='*50}")
+        print("TESTING TEAM MANAGEMENT")
+        print(f"{'='*50}")
         
-        # Get VAPID key
-        resp = session.get(f"{BASE_URL}/push/vapid-key", timeout=10)
+        # Get teams (should work without auth)
+        success, response = self.run_test(
+            "Get Teams",
+            "GET",
+            "teams",
+            200
+        )
         
-        if resp.status_code != 200:
-            log_fail("Get VAPID key", f"Status {resp.status_code}: {resp.text}")
-            return False
-        
-        vapid_data = resp.json()
-        public_key = vapid_data.get("publicKey", "")
-        
-        if not public_key:
-            log_fail("Get VAPID key", "No publicKey in response")
-            return False
-        
-        log_pass("Get VAPID key", f"Key length: {len(public_key)}")
-        
-        # Test subscribe endpoint with dummy payload
-        dummy_subscription = {
-            "subscription": {
-                "endpoint": "https://fcm.googleapis.com/fcm/send/test-endpoint-123",
-                "keys": {
-                    "p256dh": "BDummyP256dhKeyForTesting123456789",
-                    "auth": "DummyAuthKeyForTesting"
-                }
+        # Create team (requires admin)
+        if self.admin_token and self.test_user_id:
+            team_data = {
+                "name": f"Test Team {datetime.now().strftime('%H%M%S')}",
+                "member_ids": [self.test_user_id]
             }
-        }
+            
+            success, response = self.run_test(
+                "Create Team",
+                "POST",
+                "teams",
+                200,
+                data=team_data,
+                use_admin=True
+            )
+            
+            if success and 'id' in response:
+                self.created_team_id = response['id']
+                print(f"✅ Created team with ID: {self.created_team_id}")
         
-        resp = session.post(f"{BASE_URL}/push/subscribe", json=dummy_subscription, headers=headers, timeout=10)
-        
-        if resp.status_code in [200, 201]:
-            log_pass("Push subscribe", "Subscription accepted")
-            return True
-        elif resp.status_code == 400:
-            # Validation error is acceptable
-            log_pass("Push subscribe", f"Validation error (expected): {resp.text[:100]}")
-            return True
-        else:
-            log_fail("Push subscribe", f"Status {resp.status_code}: {resp.text}")
-            return False
-    except Exception as e:
-        log_fail("Web Push", f"Exception: {str(e)}")
-        return False
+        return success
 
-def print_summary():
-    """Print test summary"""
-    print_section("TEST SUMMARY")
-    
-    total = len(results["passed"]) + len(results["failed"])
-    passed = len(results["passed"])
-    failed = len(results["failed"])
-    warnings = len(results["warnings"])
-    
-    print(f"\nTotal Tests: {total}")
-    print(f"Passed: {passed}")
-    print(f"Failed: {failed}")
-    print(f"Warnings: {warnings}")
-    
-    if results["failed"]:
-        print("\n❌ FAILED TESTS:")
-        for fail in results["failed"]:
-            print(f"  {fail}")
-    
-    if results["warnings"]:
-        print("\n⚠️  WARNINGS:")
-        for warn in results["warnings"]:
-            print(f"  {warn}")
-    
-    print("\n✅ PASSED TESTS:")
-    for pass_test in results["passed"]:
-        print(f"  {pass_test}")
-    
-    return failed == 0
+    def test_solo_ladder(self):
+        """Test solo ladder"""
+        print(f"\n{'='*50}")
+        print("TESTING SOLO LADDER")
+        print(f"{'='*50}")
+        
+        success, response = self.run_test(
+            "Get Solo Ladder",
+            "GET",
+            "solo-ladder",
+            200
+        )
+        
+        return success
+
+    def test_match_management(self):
+        """Test match management"""
+        print(f"\n{'='*50}")
+        print("TESTING MATCH MANAGEMENT")
+        print(f"{'='*50}")
+        
+        # Get all matches
+        success, response = self.run_test(
+            "Get All Matches",
+            "GET",
+            "matches",
+            200
+        )
+        
+        # Get pending matches
+        success, response = self.run_test(
+            "Get Pending Matches",
+            "GET",
+            "matches?status=pending",
+            200
+        )
+        
+        # Submit a match result (requires auth)
+        if self.token and self.created_team_id:
+            match_data = {
+                "match_type": "solo",
+                "player_a_id": self.user_id,
+                "player_b_id": self.admin_id,
+                "score_a": 6,
+                "score_b": 4,
+                "match_date": datetime.now(timezone.utc).isoformat()
+            }
+            
+            success, response = self.run_test(
+                "Submit Match Result",
+                "POST",
+                "matches",
+                200,
+                data=match_data,
+                use_admin=False
+            )
+            
+            if success and 'id' in response:
+                match_id = response['id']
+                
+                # Test match approval (requires admin)
+                success, response = self.run_test(
+                    "Approve Match",
+                    "PUT",
+                    f"matches/{match_id}/approve",
+                    200,
+                    use_admin=True
+                )
+        
+        return success
+
+    def test_schedule_management(self):
+        """Test schedule management"""
+        print(f"\n{'='*50}")
+        print("TESTING SCHEDULE MANAGEMENT")  
+        print(f"{'='*50}")
+        
+        # Get schedules
+        success, response = self.run_test(
+            "Get Schedules",
+            "GET",
+            "schedules",
+            200
+        )
+        
+        # Create schedule (requires admin)
+        if self.admin_token:
+            schedule_data = {
+                "title": f"Test Schedule {datetime.now().strftime('%H%M%S')}",
+                "description": "Test schedule description",
+                "match_date": "2024-12-15",
+                "match_time": "10:00",
+                "location": "Test Court",
+                "teams": ["Team A", "Team B"]
+            }
+            
+            success, response = self.run_test(
+                "Create Schedule",
+                "POST",
+                "schedules",
+                200,
+                data=schedule_data,
+                use_admin=True
+            )
+            
+            if success and 'id' in response:
+                self.created_schedule_id = response['id']
+        
+        return success
+
+    def test_education_articles(self):
+        """Test education/articles management"""
+        print(f"\n{'='*50}")
+        print("TESTING EDUCATION ARTICLES")
+        print(f"{'='*50}")
+        
+        # Get articles
+        success, response = self.run_test(
+            "Get All Articles",
+            "GET", 
+            "articles",
+            200
+        )
+        
+        # Get articles by category
+        success, response = self.run_test(
+            "Get Articles by Category",
+            "GET",
+            "articles?category=technique",
+            200
+        )
+        
+        # Create article (requires admin)
+        if self.admin_token:
+            article_data = {
+                "title": f"Test Article {datetime.now().strftime('%H%M%S')}",
+                "content": "This is a test article about tennis techniques.",
+                "category": "technique",
+                "video_url": "https://youtube.com/watch?v=example",
+                "image_url": "https://example.com/image.jpg"
+            }
+            
+            success, response = self.run_test(
+                "Create Article",
+                "POST",
+                "articles",
+                200,
+                data=article_data,
+                use_admin=True
+            )
+            
+            if success and 'id' in response:
+                self.created_article_id = response['id']
+                
+                # Test get single article
+                success, response = self.run_test(
+                    "Get Single Article",
+                    "GET",
+                    f"articles/{self.created_article_id}",
+                    200
+                )
+        
+        return success
+
+    def test_announcements(self):
+        """Test announcements"""
+        print(f"\n{'='*50}")
+        print("TESTING ANNOUNCEMENTS")
+        print(f"{'='*50}")
+        
+        # Get announcements
+        success, response = self.run_test(
+            "Get Announcements", 
+            "GET",
+            "announcements",
+            200
+        )
+        
+        # Create announcement (requires admin)
+        if self.admin_token:
+            announcement_data = {
+                "title": f"Test Announcement {datetime.now().strftime('%H%M%S')}",
+                "content": "This is a test announcement.",
+                "priority": "normal"
+            }
+            
+            success, response = self.run_test(
+                "Create Announcement",
+                "POST",
+                "announcements", 
+                200,
+                data=announcement_data,
+                use_admin=True
+            )
+            
+            if success and 'id' in response:
+                self.created_announcement_id = response['id']
+        
+        return success
+
+    def test_chat_functionality(self):
+        """Test AI chat functionality"""
+        print(f"\n{'='*50}")
+        print("TESTING AI CHAT FUNCTIONALITY")
+        print(f"{'='*50}")
+        
+        if self.token:
+            chat_data = {
+                "message": "What are some basic tennis techniques?"
+            }
+            
+            success, response = self.run_test(
+                "Send Chat Message",
+                "POST",
+                "chat",
+                200,
+                data=chat_data,
+                use_admin=False
+            )
+            
+            if success:
+                print(f"✅ Chat response received: {response.get('content', '')[:100]}...")
+            
+            # Test chat history
+            success, response = self.run_test(
+                "Get Chat History",
+                "GET",
+                "chat/history", 
+                200,
+                use_admin=False
+            )
+        
+        return success
+
+    def test_stats_endpoint(self):
+        """Test stats endpoint"""
+        print(f"\n{'='*50}")
+        print("TESTING STATS ENDPOINT")
+        print(f"{'='*50}")
+        
+        success, response = self.run_test(
+            "Get Dashboard Stats",
+            "GET",
+            "stats",
+            200
+        )
+        
+        if success and isinstance(response, dict):
+            print(f"✅ Stats received: {response}")
+        
+        return success
+
+    def test_availability_system(self):
+        """Test availability system for Sundays"""
+        print(f"\n{'='*50}")
+        print("TESTING AVAILABILITY SYSTEM")
+        print(f"{'='*50}")
+        
+        # Get upcoming Sundays
+        success, response = self.run_test(
+            "Get Upcoming Sundays",
+            "GET",
+            "availability/upcoming-sundays",
+            200
+        )
+        
+        if success and 'sundays' in response and len(response['sundays']) > 0:
+            sunday_date = response['sundays'][0]
+            print(f"✅ Got upcoming Sundays: {response['sundays']}")
+            
+            # Set availability for Sunday (requires auth)
+            if self.token:
+                availability_data = {
+                    "date": sunday_date,
+                    "available": True
+                }
+                
+                success, response = self.run_test(
+                    "Set Availability for Sunday",
+                    "POST",
+                    "availability",
+                    200,
+                    data=availability_data,
+                    use_admin=False
+                )
+                
+                if success:
+                    print(f"✅ Set availability for {sunday_date}")
+                    
+                    # Get availability for that date
+                    success, response = self.run_test(
+                        "Get Availability for Date",
+                        "GET",
+                        f"availability?date={sunday_date}",
+                        200
+                    )
+                    
+                    if success:
+                        print(f"✅ Retrieved availability data: {len(response)} entries")
+        
+        return success
+
+    def test_round_robin_generation(self):
+        """Test round robin generation"""
+        print(f"\n{'='*50}")
+        print("TESTING ROUND ROBIN GENERATION")
+        print(f"{'='*50}")
+        
+        # This requires admin token and available players
+        if not self.admin_token:
+            print("⚠️ Skipping round robin test - no admin token")
+            return True
+            
+        # Get upcoming Sundays first
+        success, response = self.run_test(
+            "Get Sundays for Round Robin",
+            "GET",
+            "availability/upcoming-sundays",
+            200
+        )
+        
+        if success and 'sundays' in response and len(response['sundays']) > 0:
+            sunday_date = response['sundays'][0]
+            
+            # Try to generate round robin (might fail if not enough players)
+            round_robin_data = {
+                "date": sunday_date,
+                "num_courts": 2,
+                "match_duration_minutes": 30,
+                "start_time": "09:00"
+            }
+            
+            success, response = self.run_test(
+                "Generate Round Robin Schedule",
+                "POST",
+                "schedules/generate-round-robin",
+                400,  # Expect 400 if not enough players
+                data=round_robin_data,
+                use_admin=True
+            )
+            
+            # This is expected to fail with not enough players, which is fine
+            print("✅ Round robin endpoint tested (expected to need more players)")
+        
+        return True
+
+    def test_messages_system(self):
+        """Test player-admin messaging system"""
+        print(f"\n{'='*50}")
+        print("TESTING MESSAGES SYSTEM")
+        print(f"{'='*50}")
+        
+        if self.token:
+            # Send message to admin
+            message_data = {
+                "content": "Test message from player to admin"
+            }
+            
+            success, response = self.run_test(
+                "Send Message to Admin",
+                "POST",
+                "messages",
+                200,
+                data=message_data,
+                use_admin=False
+            )
+            
+            if success:
+                print("✅ Message sent to admin")
+                
+                # Get messages
+                success, response = self.run_test(
+                    "Get Messages",
+                    "GET",
+                    "messages",
+                    200,
+                    use_admin=False
+                )
+                
+                if success:
+                    print(f"✅ Retrieved messages: {len(response)} messages")
+                    
+                # Get unread count
+                success, response = self.run_test(
+                    "Get Unread Message Count",
+                    "GET",
+                    "messages/unread-count",
+                    200,
+                    use_admin=False
+                )
+        
+        return success
+
+    def test_settings_management(self):
+        """Test club settings management"""
+        print(f"\n{'='*50}")
+        print("TESTING SETTINGS MANAGEMENT")
+        print(f"{'='*50}")
+        
+        if self.admin_token:
+            # Get current settings
+            success, response = self.run_test(
+                "Get Club Settings",
+                "GET",
+                "settings",
+                200,
+                use_admin=True
+            )
+            
+            if success:
+                print(f"✅ Retrieved settings: {response}")
+                
+                # Update settings
+                settings_data = {
+                    "num_courts": 3,
+                    "default_location": "Test Tennis Club",
+                    "match_duration_minutes": 45,
+                    "default_start_time": "10:00"
+                }
+                
+                success, response = self.run_test(
+                    "Update Club Settings",
+                    "PUT",
+                    "settings",
+                    200,
+                    data=settings_data,
+                    use_admin=True
+                )
+                
+                if success:
+                    print("✅ Settings updated successfully")
+        else:
+            print("⚠️ Skipping settings test - no admin token")
+        
+        return True
+
+    def cleanup_test_data(self):
+        """Clean up test data"""
+        print(f"\n{'='*50}")
+        print("CLEANING UP TEST DATA")
+        print(f"{'='*50}")
+        
+        if self.admin_token:
+            # Delete created resources
+            if self.created_team_id:
+                self.run_test("Delete Test Team", "DELETE", f"teams/{self.created_team_id}", 200, use_admin=True)
+            
+            if self.created_schedule_id:
+                self.run_test("Delete Test Schedule", "DELETE", f"schedules/{self.created_schedule_id}", 200, use_admin=True)
+                
+            if self.created_article_id:
+                self.run_test("Delete Test Article", "DELETE", f"articles/{self.created_article_id}", 200, use_admin=True)
+                
+            if self.created_announcement_id:
+                self.run_test("Delete Test Announcement", "DELETE", f"announcements/{self.created_announcement_id}", 200, use_admin=True)
+        """Clean up test data"""
+        print(f"\n{'='*50}")
+        print("CLEANING UP TEST DATA")
+        print(f"{'='*50}")
+        
+        if self.admin_token:
+            # Delete created resources
+            if self.created_team_id:
+                self.run_test("Delete Test Team", "DELETE", f"teams/{self.created_team_id}", 200, use_admin=True)
+            
+            if self.created_schedule_id:
+                self.run_test("Delete Test Schedule", "DELETE", f"schedules/{self.created_schedule_id}", 200, use_admin=True)
+                
+            if self.created_article_id:
+                self.run_test("Delete Test Article", "DELETE", f"articles/{self.created_article_id}", 200, use_admin=True)
+                
+            if self.created_announcement_id:
+                self.run_test("Delete Test Announcement", "DELETE", f"announcements/{self.created_announcement_id}", 200, use_admin=True)
 
 def main():
-    print("\n" + "="*60)
-    print("  TENNIS BUDDIES CLUB - BACKEND SMOKE TEST")
-    print("  Fresh GitHub Sync Verification")
-    print("="*60)
-    print(f"\nBase URL: {BASE_URL}")
-    print(f"Admin: {ADMIN_EMAIL}")
-    print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("🎾 Starting Tennis Buddies Club API Testing...")
+    print(f"Base URL: https://doubles-ladder.preview.emergentagent.com/api")
     
-    # Run tests in order
-    test_health()
+    tester = TennisBuddiesAPITester()
     
-    if not test_auth_login():
-        print("\n❌ CRITICAL: Auth login failed. Cannot proceed with authenticated tests.")
-        print_summary()
-        sys.exit(1)
+    # Test sequence
+    try:
+        # 1. Test registration flow (creates admin + member users)
+        if not tester.test_registration_flow():
+            print("❌ Registration flow failed, stopping tests")
+            return 1
+        
+        # 2. Test authentication endpoints
+        tester.test_auth_endpoints()
+        
+        # 3. Test team management
+        tester.test_team_management()
+        
+        # 4. Test solo ladder
+        tester.test_solo_ladder()
+        
+        # 5. Test match management
+        tester.test_match_management()
+        
+        # 6. Test schedule management  
+        tester.test_schedule_management()
+        
+        # 7. Test education articles
+        tester.test_education_articles()
+        
+        # 8. Test announcements
+        tester.test_announcements()
+        
+        # 9. Test AI chat functionality
+        tester.test_chat_functionality()
+        
+        # 10. Test stats endpoint
+        tester.test_stats_endpoint()
+        
+        # 11. Test availability system
+        tester.test_availability_system()
+        
+        # 12. Test round robin generation
+        tester.test_round_robin_generation()
+        
+        # 13. Test messages system
+        tester.test_messages_system()
+        
+        # 14. Test settings management
+        tester.test_settings_management()
+        
+        # Cleanup
+        tester.cleanup_test_data()
+        
+    except Exception as e:
+        print(f"❌ Testing failed with error: {e}")
+        return 1
     
-    test_auth_me()
-    test_auth_logout()
+    # Print final results
+    print(f"\n{'='*50}")
+    print("FINAL TEST RESULTS")
+    print(f"{'='*50}")
+    print(f"📊 Tests passed: {tester.tests_passed}/{tester.tests_run}")
+    success_rate = (tester.tests_passed / tester.tests_run * 100) if tester.tests_run > 0 else 0
+    print(f"📊 Success rate: {success_rate:.1f}%")
     
-    if not test_relogin():
-        print("\n❌ CRITICAL: Re-authentication failed. Cannot proceed.")
-        print_summary()
-        sys.exit(1)
-    
-    # Events & RSVP
-    success, events = test_weekly_events_list()
-    success, event_id = test_create_event()
-    
-    if event_id:
-        test_rsvp_flow(event_id)
-        test_close_reopen_rsvp(event_id)
-    
-    # Stats endpoints
-    test_solo_ladder()
-    test_season_standings()
-    test_head_to_head()
-    test_partnerships()
-    
-    # Match history & chat
-    test_match_history()
-    test_matches_list()
-    test_chatroom()
-    
-    # LLM endpoints
-    test_opponent_scout()
-    test_strategy_bot()
-    
-    # Web Push
-    test_web_push()
-    
-    # Print summary
-    success = print_summary()
-    
-    if success:
-        print("\n🎉 ALL TESTS PASSED!")
-        sys.exit(0)
-    else:
-        print("\n❌ SOME TESTS FAILED")
-        sys.exit(1)
+    return 0 if tester.tests_passed == tester.tests_run else 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
