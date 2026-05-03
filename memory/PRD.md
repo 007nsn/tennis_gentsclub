@@ -38,7 +38,21 @@
 ### Admin
 - [x] Per-tab delete controls, individual chat/announcement delete
 - [x] Export members as Excel
+- [x] Excel Member Import with template download
+- [x] Plaintext password visibility (admin_visible_password) + "Reset All to tennis2025"
 - [x] Content form with drag-and-drop upload + mini previews
+
+### Submit Result (Round-Robin Aware) - Feb 2026
+- [x] Page rebuilt around Event -> Round -> Match selection (legacy "Teams" concept dropped)
+- [x] Single-set scoring (e.g., 6-4); any logged-in member can submit (not just admin)
+- [x] Edits supported: undoes prior winner +1 then applies new winner +1
+- [x] Archive view shows all rounds/matches for the selected event with bolded winning team
+- [x] Backend: GET /api/weekly-events/with-schedules, POST /api/weekly-events/{id}/submit-score
+- [x] Route ordering bug fixed (with-schedules registered before /{event_id})
+
+### Bug Fixes (Feb 2026)
+- [x] Sunday-vs-Monday timezone display bug (toISOString → local date strings)
+- [x] JWT_SECRET InsecureKeyLengthWarning (hashed before HS256 sign)
 
 ### Navigation
 - [x] Public: Home, Schedule, Log In, Join Club only
