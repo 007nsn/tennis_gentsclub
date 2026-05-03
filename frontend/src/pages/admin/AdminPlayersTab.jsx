@@ -5,15 +5,18 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Badge } from '../../components/ui/badge';
-import { Edit2, Trash2, Download, Save, X, Loader2 } from 'lucide-react';
-import { exportUsersExcel } from '../../lib/api';
+import { Edit2, Trash2, Download, Save, X, Loader2, Upload, FileSpreadsheet } from 'lucide-react';
+import { exportUsersExcel, downloadImportTemplate, importUsersExcel } from '../../lib/api';
 import { toast } from 'sonner';
 
-export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, onUpdateUser, onDeleteUser, onClearUsers }) {
+export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, onUpdateUser, onDeleteUser, onClearUsers, onRefresh }) {
     const [editingPlayer, setEditingPlayer] = useState(null);
     const [editingUser, setEditingUser] = useState(null);
     const [editForm, setEditForm] = useState({ name: '', email: '', phone: '' });
     const [saving, setSaving] = useState(false);
+    const [importFile, setImportFile] = useState(null);
+    const [importing, setImporting] = useState(false);
+    const [importResult, setImportResult] = useState(null);
 
     const handleExport = async () => {
         try {
@@ -27,6 +30,44 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
             toast.success('Members exported!');
         } catch (e) {
             toast.error('Export failed');
+        }
+    };
+
+    const handleDownloadTemplate = async () => {
+        try {
+            const res = await downloadImportTemplate();
+            const url = URL.createObjectURL(res.data);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'tennis_buddies_import_template.xlsx';
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success('Template downloaded');
+        } catch (e) {
+            toast.error('Template download failed');
+        }
+    };
+
+    const handleImport = async () => {
+        if (!importFile) { toast.error('Please select an .xlsx file first'); return; }
+        setImporting(true);
+        setImportResult(null);
+        try {
+            const res = await importUsersExcel(importFile);
+            setImportResult(res.data);
+            const { created, skipped, errors } = res.data || {};
+            if (created > 0) toast.success(`${created} member${created === 1 ? '' : 's'} imported`);
+            if (skipped > 0) toast.info(`${skipped} skipped (email already existed)`);
+            if (errors && errors.length > 0) toast.error(`${errors.length} row${errors.length === 1 ? '' : 's'} had errors`);
+            setImportFile(null);
+            const fileInput = document.getElementById('member-import-file');
+            if (fileInput) fileInput.value = '';
+            if (onRefresh) await onRefresh();
+        } catch (e) {
+            const msg = e?.response?.data?.detail || 'Import failed';
+            toast.error(msg);
+        } finally {
+            setImporting(false);
         }
     };
 
@@ -57,7 +98,54 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
 
     return (
         <TabsContent value="players">
-            <div className="grid lg:grid-cols-2 gap-6">
+            <div className="space-y-6">
+                <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                    <CardHeader>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div>
+                                <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5 text-[#0051BA]" /> Import Members from Excel</CardTitle>
+                                <CardDescription>Bulk-add existing roster. Columns: <strong>Name</strong>, <strong>Email</strong>, Phone, Password. Blank Password defaults to <code>tennis2025</code>. Duplicate emails are skipped.</CardDescription>
+                            </div>
+                            <Button size="sm" variant="outline" className="text-[#0051BA] border-[#0051BA]/30" onClick={handleDownloadTemplate} data-testid="download-template-btn">
+                                <Download className="w-4 h-4 mr-1" /> Download Template
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Input
+                                id="member-import-file"
+                                type="file"
+                                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                onChange={(e) => { setImportFile(e.target.files?.[0] || null); setImportResult(null); }}
+                                className="max-w-sm"
+                                data-testid="import-file-input"
+                            />
+                            <Button onClick={handleImport} disabled={importing || !importFile} className="btn-primary" data-testid="import-members-btn">
+                                {importing ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Upload className="w-4 h-4 mr-1" />}
+                                Import Members
+                            </Button>
+                        </div>
+                        {importResult && (
+                            <div className="mt-3 text-sm space-y-1" data-testid="import-result">
+                                <div className="flex flex-wrap gap-3">
+                                    <Badge className="bg-green-100 text-green-800">{importResult.created} created</Badge>
+                                    <Badge className="bg-amber-100 text-amber-800">{importResult.skipped} skipped (duplicate email)</Badge>
+                                    {importResult.errors?.length > 0 && <Badge className="bg-red-100 text-red-800">{importResult.errors.length} errors</Badge>}
+                                </div>
+                                {importResult.errors?.length > 0 && (
+                                    <ul className="text-xs text-red-700 pl-5 list-disc max-h-32 overflow-y-auto pt-1">
+                                        {importResult.errors.map((er, i) => (
+                                            <li key={i}>Row {er.row}: {er.error}</li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <div className="grid lg:grid-cols-2 gap-6">
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                     <CardHeader>
                         <CardTitle>Solo Ladder Players</CardTitle>
@@ -199,6 +287,7 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                         </Button>
                     </div>
                 )}
+                </div>
             </div>
         </TabsContent>
     );

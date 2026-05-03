@@ -93,6 +93,7 @@ export default function Admin() {
                     onUpdateUser={data.handleUpdateUser}
                     onDeleteUser={data.handleDeleteUser}
                     onClearUsers={data.handleClearUsers}
+                    onRefresh={data.loadAllData}
                 />
 
                 <AdminContentTab

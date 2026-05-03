@@ -734,6 +734,124 @@ async def export_users_excel(admin: dict = Depends(get_admin_user)):
         headers={"Content-Disposition": "attachment; filename=tennis_buddies_members.xlsx"}
     )
 
+@api_router.get("/users/import-template")
+async def download_import_template(admin: dict = Depends(get_admin_user)):
+    """Download an Excel template for bulk member import (Name, Email, Phone, Password)."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Members"
+    ws.append(["Name", "Email", "Phone", "Password"])
+    for col in ['A', 'B', 'C', 'D']:
+        ws.column_dimensions[col].width = 25
+    # Example row (commented for the user)
+    ws.append(["John Doe (example)", "john@example.com", "9145551234", "tennis2025"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=tennis_buddies_import_template.xlsx"}
+    )
+
+
+@api_router.post("/users/import-excel")
+async def import_users_excel(file: UploadFile = File(...), admin: dict = Depends(get_admin_user)):
+    """Bulk import members from Excel.
+    Columns: Name (required), Email (required), Phone (optional), Password (optional, default 'tennis2025').
+    Skips rows where email already exists. Returns { created, skipped, errors }.
+    """
+    from openpyxl import load_workbook
+    DEFAULT_PASSWORD = "tennis2025"
+
+    content = await file.read()
+    try:
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read Excel file. Please upload a valid .xlsx file.")
+    ws = wb.active
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        raise HTTPException(status_code=400, detail="Spreadsheet is empty.")
+
+    headers_raw = [str(c).strip().lower() if c is not None else "" for c in rows[0]]
+    idx = {}
+    for i, h in enumerate(headers_raw):
+        if h in ("name", "full name"):
+            idx["name"] = i
+        elif h == "email":
+            idx["email"] = i
+        elif h == "phone":
+            idx["phone"] = i
+        elif h == "password":
+            idx["password"] = i
+    if "name" not in idx or "email" not in idx:
+        raise HTTPException(status_code=400, detail="Missing required columns 'Name' and 'Email'.")
+
+    created = 0
+    skipped = 0
+    errors = []
+    for row_num, row in enumerate(rows[1:], start=2):
+        try:
+            def cell(key):
+                i = idx.get(key)
+                if i is None or i >= len(row) or row[i] is None:
+                    return ""
+                return str(row[i]).strip()
+
+            name = cell("name")
+            email = cell("email").lower()
+            phone = cell("phone")
+            password = cell("password")
+
+            # skip fully empty rows silently
+            if not name and not email:
+                continue
+            if not name or not email:
+                errors.append({"row": row_num, "error": "Missing name or email"})
+                continue
+            if "@" not in email or "." not in email.split("@")[-1]:
+                errors.append({"row": row_num, "error": f"Invalid email '{email}'"})
+                continue
+            if email.startswith("john@example.com"):
+                # ignore the placeholder example row from our template
+                continue
+
+            existing = await db.users.find_one({"email": email})
+            if existing:
+                skipped += 1
+                continue
+
+            if not password:
+                password = DEFAULT_PASSWORD
+
+            user_id = str(uuid.uuid4())
+            user_doc = {
+                "id": user_id,
+                "email": email,
+                "name": name,
+                "phone": phone,
+                "password": hash_password(password),
+                "role": "member",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.users.insert_one(user_doc)
+            await db.solo_players.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "name": name,
+                "wins": 0
+            })
+            created += 1
+        except Exception as e:
+            errors.append({"row": row_num, "error": str(e)[:200]})
+
+    return {"created": created, "skipped": skipped, "errors": errors}
+
+
+
 # ============ TEAM ROUTES ============
 
 @api_router.post("/teams", response_model=TeamResponse)

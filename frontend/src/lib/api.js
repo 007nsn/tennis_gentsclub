@@ -41,6 +41,12 @@ export const getUsers = () => api.get('/users');
 export const updateUser = (id, data) => api.put(`/users/${id}`, data);
 export const deleteUser = (id) => api.delete(`/users/${id}`);
 export const exportUsersExcel = () => api.get('/users/export', { responseType: 'blob' });
+export const downloadImportTemplate = () => api.get('/users/import-template', { responseType: 'blob' });
+export const importUsersExcel = (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/users/import-excel', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
 
 // Teams
 export const createTeam = (data) => api.post('/teams', data);
