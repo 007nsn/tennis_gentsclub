@@ -2925,6 +2925,99 @@ async def delete_weekly_event(event_id: str, admin: dict = Depends(get_admin_use
     await db.weekly_events.delete_one({"id": event_id})
     return {"message": "Event deleted (can be restored)"}
 
+# ==== Round-Robin Match Score Submission ====
+
+class RoundRobinScoreSubmit(BaseModel):
+    round_num: int
+    court: int
+    score_a: int
+    score_b: int
+
+
+def _apply_solo_wins_delta(winner_ids: list, loser_ids: list, delta: int = 1):
+    """Return coroutines to apply wins +/- delta to winners and losses to losers.
+    delta=1 applies, delta=-1 undoes."""
+    return [
+        db.solo_players.update_many({"id": {"$in": winner_ids}}, {"$inc": {"wins": delta}})
+    ]
+
+
+@api_router.get("/weekly-events/with-schedules")
+async def get_events_with_schedules(user: dict = Depends(get_current_user)):
+    """Return events that have a generated_schedule set, newest first.
+    Used by the Submit Result page to pick an event + round + match."""
+    events = await db.weekly_events.find(
+        {"generated_schedule": {"$ne": None}, "archived": {"$ne": True}},
+        {"_id": 0}
+    ).sort("event_date", -1).to_list(30)
+    # Keep payload lean
+    result = []
+    for e in events:
+        result.append({
+            "id": e["id"],
+            "event_date": e["event_date"],
+            "title": e.get("title"),
+            "location": e.get("location"),
+            "start_time": e.get("start_time"),
+            "generated_schedule": e.get("generated_schedule") or [],
+        })
+    return result
+
+
+@api_router.post("/weekly-events/{event_id}/submit-score")
+async def submit_roundrobin_score(event_id: str, data: RoundRobinScoreSubmit, user: dict = Depends(get_current_user)):
+    """Any authenticated user can submit (or edit) a score for a specific
+    round-robin match. Updates solo_players.wins accordingly (handles edits by
+    undoing the previous winner wins before applying the new result).
+    """
+    event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    schedule = event.get("generated_schedule") or []
+    if not schedule:
+        raise HTTPException(status_code=400, detail="This event has no generated schedule")
+
+    # Locate the match
+    round_obj = next((r for r in schedule if r.get("round") == data.round_num), None)
+    if not round_obj:
+        raise HTTPException(status_code=404, detail=f"Round {data.round_num} not found")
+    match = next((m for m in round_obj.get("matches", []) if m.get("court") == data.court), None)
+    if not match:
+        raise HTTPException(status_code=404, detail=f"Match on court {data.court} in round {data.round_num} not found")
+
+    if data.score_a < 0 or data.score_b < 0 or data.score_a > 20 or data.score_b > 20:
+        raise HTTPException(status_code=400, detail="Scores must be between 0 and 20")
+    if data.score_a == data.score_b:
+        raise HTTPException(status_code=400, detail="Scores cannot be equal (ties not supported)")
+
+    team_a_ids = [p["id"] for p in match.get("team_a", []) if p.get("id")]
+    team_b_ids = [p["id"] for p in match.get("team_b", []) if p.get("id")]
+    if not team_a_ids or not team_b_ids:
+        raise HTTPException(status_code=400, detail="Match has missing player data; cannot score")
+
+    # Undo previous result if already scored
+    prev_a = match.get("score_a")
+    prev_b = match.get("score_b")
+    if prev_a is not None and prev_b is not None and prev_a != prev_b:
+        prev_winners = team_a_ids if prev_a > prev_b else team_b_ids
+        await db.solo_players.update_many({"id": {"$in": prev_winners}}, {"$inc": {"wins": -1}})
+
+    # Apply new result
+    new_winners = team_a_ids if data.score_a > data.score_b else team_b_ids
+    await db.solo_players.update_many({"id": {"$in": new_winners}}, {"$inc": {"wins": 1}})
+
+    # Update the nested match in the stored schedule
+    match["score_a"] = data.score_a
+    match["score_b"] = data.score_b
+    match["winner"] = "a" if data.score_a > data.score_b else "b"
+    match["submitted_by"] = user["id"]
+    match["submitted_by_name"] = user.get("name", "")
+    match["submitted_at"] = datetime.now(timezone.utc).isoformat()
+
+    await db.weekly_events.update_one({"id": event_id}, {"$set": {"generated_schedule": schedule}})
+    return {"ok": True, "winner": match["winner"], "score_a": data.score_a, "score_b": data.score_b}
+
+
 @api_router.post("/weekly-events/restore-last")
 async def restore_last_event(admin: dict = Depends(get_admin_user)):
     """Restore the most recently deleted event"""

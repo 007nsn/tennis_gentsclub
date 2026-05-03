@@ -48,6 +48,8 @@ export const importUsersExcel = (file) => {
     return api.post('/users/import-excel', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
 };
 export const resetAllPasswords = () => api.post('/users/reset-all-passwords');
+export const getEventsWithSchedules = () => api.get('/weekly-events/with-schedules');
+export const submitRoundRobinScore = (eventId, payload) => api.post(`/weekly-events/${eventId}/submit-score`, payload);
 
 // Teams
 export const createTeam = (data) => api.post('/teams', data);
