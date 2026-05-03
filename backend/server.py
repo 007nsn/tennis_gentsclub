@@ -2901,6 +2901,28 @@ async def get_upcoming_weekly_events():
     ).sort("event_date", 1).to_list(10)
     return events
 
+@api_router.get("/weekly-events/with-schedules")
+async def get_events_with_schedules_v2(user: dict = Depends(get_current_user)):
+    """Return events that have a generated_schedule set, newest first.
+    Used by the Submit Result page to pick an event + round + match.
+    NOTE: This route MUST be declared before /weekly-events/{event_id} so
+    FastAPI doesn't match 'with-schedules' as an event_id."""
+    events = await db.weekly_events.find(
+        {"generated_schedule": {"$ne": None}, "archived": {"$ne": True}},
+        {"_id": 0}
+    ).sort("event_date", -1).to_list(30)
+    result = []
+    for e in events:
+        result.append({
+            "id": e["id"],
+            "event_date": e["event_date"],
+            "title": e.get("title"),
+            "location": e.get("location"),
+            "start_time": e.get("start_time"),
+            "generated_schedule": e.get("generated_schedule") or [],
+        })
+    return result
+
 @api_router.get("/weekly-events/{event_id}")
 async def get_weekly_event(event_id: str):
     """Get single event with check-ins"""
@@ -2940,28 +2962,6 @@ def _apply_solo_wins_delta(winner_ids: list, loser_ids: list, delta: int = 1):
     return [
         db.solo_players.update_many({"id": {"$in": winner_ids}}, {"$inc": {"wins": delta}})
     ]
-
-
-@api_router.get("/weekly-events/with-schedules")
-async def get_events_with_schedules(user: dict = Depends(get_current_user)):
-    """Return events that have a generated_schedule set, newest first.
-    Used by the Submit Result page to pick an event + round + match."""
-    events = await db.weekly_events.find(
-        {"generated_schedule": {"$ne": None}, "archived": {"$ne": True}},
-        {"_id": 0}
-    ).sort("event_date", -1).to_list(30)
-    # Keep payload lean
-    result = []
-    for e in events:
-        result.append({
-            "id": e["id"],
-            "event_date": e["event_date"],
-            "title": e.get("title"),
-            "location": e.get("location"),
-            "start_time": e.get("start_time"),
-            "generated_schedule": e.get("generated_schedule") or [],
-        })
-    return result
 
 
 @api_router.post("/weekly-events/{event_id}/submit-score")

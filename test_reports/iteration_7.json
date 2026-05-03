@@ -1,0 +1,33 @@
+{
+  "summary": "Full-coverage backend + frontend testing of Submit Result / round-robin score submission. 15/15 backend pytest cases passed and frontend e2e flow (login -> /submit-result -> select event/round/match -> submit -> toast + archive refresh) works end-to-end. Route ordering regression is fixed: /weekly-events/with-schedules now resolves correctly without colliding with /weekly-events/{event_id}.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_submit_score.py",
+    "/app/test_reports/pytest/pytest_submit_score.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_apply_solo_wins_delta helper in server.py (~L2959) is defined but never invoked; the submit-score handler calls db.solo_players.update_many directly. Either remove the dead helper or use it consistently. Low priority cleanup.",
+    "Validation order in submit_roundrobin_score: range/tie checks (400) happen AFTER the round/court 404 lookup. That is correct for the current tests but means a request with invalid round AND invalid score will surface the 404 first; documenting this as the contract is fine.",
+    "RoundRobinScoreSubmit pydantic model has no Field bounds; the >20 / <0 / equal validation is hand-rolled in the handler. Adding ge=0/le=20 on the model would also yield 422s for malformed payloads earlier (current behavior is 400, which the tests assert).",
+    "server.py is 3928 lines — well above the 700-line guideline. Should be split into routers (auth, weekly_events, matches, etc.) in a future refactor."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_submit_score.py (new)"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@tennis.com / admin123 (from /app/memory/test_credentials.md). Non-admin member auto-registered per session as TEST_member_<uuid>@tennis.com / tennis2025.",
+  "seed_data_creation": "No new seed data created; reused the pre-seeded 2026-05-10 event with 4 solo_players (Sergei Nabatov, Thomas Pallogudis, Francesco Bucello, Eric Pallas). The edit-undo test self-restores the round 1 score so wins remain consistent. Round 1 final state after run: Team A wins 6-2 (re-submitted by member during permission test, then admin self-restore left it at 6-2 from the latest member submission). Round 2 was scored 6-1 by frontend test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_submit_score.py is idempotent and re-runnable. It uses the existing seeded 2026-05-10 event. The edit test flips the result, asserts deltas, then restores. The non-admin permission test re-submits round 1 with score 6-2, which mutates state but stays within valid scores. If you change seed players or remove the event, fixtures will skip/fail with clear messages.",
+  "rca of the issue": "Root cause (already fixed by main agent before this run): in FastAPI, path routes are matched in registration order. The literal route /weekly-events/with-schedules was registered AFTER /weekly-events/{event_id}, so 'with-schedules' was treated as event_id and 404'd with 'Event not found'. Fix verified: declaring the literal route BEFORE the parametric route resolves it correctly. test_with_schedules_not_treated_as_event_id explicitly asserts 200 + list shape to lock this regression."
+}
