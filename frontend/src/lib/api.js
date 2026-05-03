@@ -47,6 +47,7 @@ export const importUsersExcel = (file) => {
     formData.append('file', file);
     return api.post('/users/import-excel', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
 };
+export const resetAllPasswords = () => api.post('/users/reset-all-passwords');
 
 // Teams
 export const createTeam = (data) => api.post('/teams', data);

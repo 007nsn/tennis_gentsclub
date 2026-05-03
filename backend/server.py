@@ -104,11 +104,13 @@ class UserResponse(BaseModel):
     role: str
     phone: Optional[str] = None
     created_at: str
+    admin_visible_password: Optional[str] = None
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    password: Optional[str] = None
 
 class TeamCreate(BaseModel):
     name: str
@@ -619,6 +621,7 @@ async def register(user_data: UserCreate):
         "name": user_data.name,
         "phone": user_data.phone or "",
         "password": hash_password(user_data.password),
+        "admin_visible_password": user_data.password,
         "role": role,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -672,7 +675,10 @@ async def get_me(user: dict = Depends(get_current_user)):
 
 @api_router.get("/users", response_model=List[UserResponse])
 async def get_users(user: dict = Depends(get_current_user)):
-    users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
+    projection = {"_id": 0, "password": 0}
+    if user.get("role") != "admin":
+        projection["admin_visible_password"] = 0
+    users = await db.users.find({}, projection).to_list(1000)
     return [UserResponse(**u) for u in users]
 
 @api_router.put("/users/{user_id}")
@@ -680,15 +686,27 @@ async def update_user(user_id: str, update_data: UserUpdate, admin: dict = Depen
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields to update")
-    
+
+    # Password handling: hash + also store plaintext in admin_visible_password
+    if "password" in update_dict:
+        plaintext = str(update_dict.pop("password")).strip()
+        if plaintext:
+            if len(plaintext) < 4:
+                raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+            update_dict["password"] = hash_password(plaintext)
+            update_dict["admin_visible_password"] = plaintext
+
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
     result = await db.users.update_one({"id": user_id}, {"$set": update_dict})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Also update solo player name if name changed
     if "name" in update_dict:
         await db.solo_players.update_one({"user_id": user_id}, {"$set": {"name": update_dict["name"]}})
-    
+
     return {"message": "User updated"}
 
 @api_router.delete("/users/{user_id}")
@@ -834,6 +852,7 @@ async def import_users_excel(file: UploadFile = File(...), admin: dict = Depends
                 "name": name,
                 "phone": phone,
                 "password": hash_password(password),
+                "admin_visible_password": password,
                 "role": "member",
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
@@ -849,6 +868,19 @@ async def import_users_excel(file: UploadFile = File(...), admin: dict = Depends
             errors.append({"row": row_num, "error": str(e)[:200]})
 
     return {"created": created, "skipped": skipped, "errors": errors}
+
+
+@api_router.post("/users/reset-all-passwords")
+async def reset_all_passwords(admin: dict = Depends(get_admin_user)):
+    """Reset ALL non-admin member passwords to 'tennis2025'. Admin account is untouched."""
+    default_pw = "tennis2025"
+    hashed = hash_password(default_pw)
+    result = await db.users.update_many(
+        {"role": {"$ne": "admin"}},
+        {"$set": {"password": hashed, "admin_visible_password": default_pw}}
+    )
+    return {"reset_count": result.modified_count, "password": default_pw}
+
 
 
 

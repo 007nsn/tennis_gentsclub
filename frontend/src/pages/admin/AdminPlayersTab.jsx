@@ -5,18 +5,21 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Badge } from '../../components/ui/badge';
-import { Edit2, Trash2, Download, Save, X, Loader2, Upload, FileSpreadsheet } from 'lucide-react';
-import { exportUsersExcel, downloadImportTemplate, importUsersExcel } from '../../lib/api';
+import { Edit2, Trash2, Download, Save, X, Loader2, Upload, FileSpreadsheet, Eye, EyeOff, Key, RefreshCw } from 'lucide-react';
+import { exportUsersExcel, downloadImportTemplate, importUsersExcel, resetAllPasswords } from '../../lib/api';
 import { toast } from 'sonner';
 
 export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, onUpdateUser, onDeleteUser, onClearUsers, onRefresh }) {
     const [editingPlayer, setEditingPlayer] = useState(null);
     const [editingUser, setEditingUser] = useState(null);
-    const [editForm, setEditForm] = useState({ name: '', email: '', phone: '' });
+    const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', password: '' });
+    const [showEditPassword, setShowEditPassword] = useState(false);
     const [saving, setSaving] = useState(false);
     const [importFile, setImportFile] = useState(null);
     const [importing, setImporting] = useState(false);
     const [importResult, setImportResult] = useState(null);
+    const [revealPasswords, setRevealPasswords] = useState({});
+    const [resettingAll, setResettingAll] = useState(false);
 
     const handleExport = async () => {
         try {
@@ -73,21 +76,42 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
 
     const openEditUser = (u) => {
         setEditingUser(u.id);
-        setEditForm({ name: u.name || '', email: u.email || '', phone: u.phone || '' });
+        setEditForm({ name: u.name || '', email: u.email || '', phone: u.phone || '', password: '' });
+        setShowEditPassword(false);
     };
 
     const handleSaveUser = async () => {
         if (!editingUser) return;
         setSaving(true);
         try {
-            await onUpdateUser(editingUser, {
+            const payload = {
                 name: editForm.name || undefined,
                 email: editForm.email || undefined,
                 phone: editForm.phone || undefined
-            });
+            };
+            if (editForm.password && editForm.password.trim()) {
+                payload.password = editForm.password.trim();
+            }
+            await onUpdateUser(editingUser, payload);
             setEditingUser(null);
+            if (payload.password) toast.success('Password updated');
         } catch (e) { /* handled in parent */ }
         finally { setSaving(false); }
+    };
+
+    const handleResetAll = async () => {
+        if (!window.confirm('Reset ALL member passwords to "tennis2025"? (Admin account is not affected.)')) return;
+        setResettingAll(true);
+        try {
+            const res = await resetAllPasswords();
+            const n = res?.data?.reset_count ?? 0;
+            toast.success(`${n} member${n === 1 ? '' : 's'} reset to tennis2025`);
+            if (onRefresh) await onRefresh();
+        } catch (e) {
+            toast.error('Reset failed');
+        } finally {
+            setResettingAll(false);
+        }
     };
 
     const handleDeleteUser = async (userId, userName) => {
@@ -184,14 +208,19 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
 
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                     <CardHeader>
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                             <div>
                                 <CardTitle>Club Members</CardTitle>
-                                <CardDescription>Edit name, email, phone — or delete</CardDescription>
+                                <CardDescription>Edit name, email, phone, password — or delete</CardDescription>
                             </div>
-                            <Button size="sm" variant="outline" className="text-[#0051BA] border-[#0051BA]/30" onClick={handleExport} data-testid="export-members-btn">
-                                <Download className="w-4 h-4 mr-1" /> Export Excel
-                            </Button>
+                            <div className="flex gap-2 flex-wrap">
+                                <Button size="sm" variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-50" onClick={handleResetAll} disabled={resettingAll} data-testid="reset-all-passwords-btn">
+                                    {resettingAll ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1" />} Reset All to tennis2025
+                                </Button>
+                                <Button size="sm" variant="outline" className="text-[#0051BA] border-[#0051BA]/30" onClick={handleExport} data-testid="export-members-btn">
+                                    <Download className="w-4 h-4 mr-1" /> Export Excel
+                                </Button>
+                            </div>
                         </div>
                     </CardHeader>
                     <CardContent>
@@ -239,6 +268,28 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                                                     data-testid="edit-phone-input"
                                                 />
                                             </div>
+                                            <div>
+                                                <Label className="text-xs text-gray-500 flex items-center gap-1"><Key className="w-3 h-3" /> Password</Label>
+                                                <div className="flex gap-1">
+                                                    <div className="relative flex-1">
+                                                        <Input
+                                                            type={showEditPassword ? 'text' : 'password'}
+                                                            value={editForm.password}
+                                                            onChange={e => setEditForm(prev => ({ ...prev, password: e.target.value }))}
+                                                            placeholder={u.admin_visible_password ? `Current: ${u.admin_visible_password}` : 'Leave blank to keep unchanged'}
+                                                            className="h-8 text-sm pr-8"
+                                                            data-testid="edit-password-input"
+                                                        />
+                                                        <button type="button" onClick={() => setShowEditPassword(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" tabIndex={-1}>
+                                                            {showEditPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                                        </button>
+                                                    </div>
+                                                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs px-2" onClick={() => { setEditForm(prev => ({ ...prev, password: 'tennis2025' })); setShowEditPassword(true); }}>
+                                                        tennis2025
+                                                    </Button>
+                                                </div>
+                                                <p className="text-[10px] text-gray-400 mt-1">Leave blank to keep current password. Min 4 characters.</p>
+                                            </div>
                                             <div className="flex gap-2 pt-1">
                                                 <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleSaveUser} disabled={saving} data-testid="save-user-btn">
                                                     {saving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
@@ -260,6 +311,21 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                                                     <div className="font-medium">{u.name}</div>
                                                     <div className="text-sm text-gray-500">{u.email}</div>
                                                     {u.phone && <div className="text-sm text-gray-400">{u.phone}</div>}
+                                                    {u.role !== 'admin' && (
+                                                        <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                                                            <Key className="w-3 h-3 text-gray-400" />
+                                                            <span className="font-mono">
+                                                                {u.admin_visible_password
+                                                                    ? (revealPasswords[u.id] ? u.admin_visible_password : '••••••••')
+                                                                    : <span className="italic text-gray-400">member-set (hidden)</span>}
+                                                            </span>
+                                                            {u.admin_visible_password && (
+                                                                <button type="button" className="text-gray-400 hover:text-gray-600" onClick={() => setRevealPasswords(prev => ({ ...prev, [u.id]: !prev[u.id] }))} data-testid={`reveal-password-${u.id}`}>
+                                                                    {revealPasswords[u.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                             <div className="flex gap-1">
