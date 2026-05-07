@@ -29,7 +29,18 @@ export default function Login() {
             toast.success('Welcome back!');
             navigate('/');
         } catch (error) {
-            toast.error(error.response?.data?.detail || 'Invalid credentials');
+            const detail = error.response?.data?.detail;
+            let message =
+                typeof detail === 'string'
+                    ? detail
+                    : Array.isArray(detail)
+                      ? detail[0]?.msg
+                      : undefined;
+            if (!message && error.request && !error.response) {
+                message =
+                    'Cannot reach the server. Start the backend (e.g. port 8000) and check REACT_APP_BACKEND_URL.';
+            }
+            toast.error(message || 'Invalid credentials');
         } finally {
             setLoading(false);
         }

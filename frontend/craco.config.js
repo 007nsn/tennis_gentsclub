@@ -61,11 +61,6 @@ const webpackConfig = {
         ],
       };
 
-      // fork-ts-checker expects Ajv v6; npm overrides force ajv@8 and crash at startup.
-      webpackConfig.plugins = (webpackConfig.plugins || []).filter(
-        (p) => p?.constructor?.name !== "ForkTsCheckerWebpackPlugin"
-      );
-
       // Add health check plugin to webpack if enabled
       if (config.enableHealthCheck && healthPluginInstance) {
         webpackConfig.plugins.push(healthPluginInstance);
