@@ -1452,7 +1452,12 @@ async def serve_file(path: str, request: Request, credentials: Optional[HTTPAuth
         raise HTTPException(status_code=401, detail="Login required to download files")
     try:
         data, content_type = get_object(path)
-        return Response(content=data, media_type=content_type)
+        safe_name = path.split("/")[-1].replace('"', "") or "file"
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+        )
     except Exception as e:
         logger.error(f"File serve failed: {e}")
         raise HTTPException(status_code=404, detail="File not found")

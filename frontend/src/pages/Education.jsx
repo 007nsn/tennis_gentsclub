@@ -1,12 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { BookOpen, Play, Dumbbell, Target, Package, FileText, File as FileIcon, X, Download, ExternalLink, Presentation } from 'lucide-react';
-import { getArticles, getFileUrl } from '../lib/api';
-import { useAuth } from '../context/AuthContext';
-import api from '../lib/api';
+import { BookOpen, Play, Dumbbell, Target, Package, FileText, File as FileIcon, X, Presentation } from 'lucide-react';
+import { getArticles } from '../lib/api';
+import { MaterialMediaBody } from '../components/MaterialMediaBody';
+import { getYouTubeId, categoryColors, isPdf, isPptx, isImage, isVideoFile } from '../lib/educationMedia';
 
 const categories = [
     { id: 'all', label: 'All', icon: BookOpen },
@@ -16,13 +16,6 @@ const categories = [
     { id: 'equipment', label: 'Equipment', icon: Package },
 ];
 
-const categoryColors = {
-    technique: 'bg-blue-100 text-blue-800',
-    strategy: 'bg-purple-100 text-purple-800',
-    fitness: 'bg-green-100 text-green-800',
-    equipment: 'bg-orange-100 text-orange-800',
-};
-
 const gradients = [
     'from-slate-700 via-slate-800 to-slate-900',
     'from-zinc-700 via-zinc-800 to-zinc-900',
@@ -30,138 +23,32 @@ const gradients = [
     'from-stone-700 via-stone-800 to-stone-900',
 ];
 
-function getYouTubeId(url) {
-    if (!url) return null;
-    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
-    return match ? match[1] : null;
-}
-
-function isPdf(name) { return name?.toLowerCase().endsWith('.pdf'); }
-function isPptx(name) { return /\.(ppt|pptx)$/i.test(name || ''); }
-function isImage(name) { return /\.(png|jpg|jpeg|gif|webp)$/i.test(name || ''); }
-function isVideo(name) { return /\.(mp4|webm|mov)$/i.test(name || ''); }
-
 function ContentModal({ article, onClose }) {
-    const { user } = useAuth();
-    const youtubeId = getYouTubeId(article.video_url);
-    const fileUrl = article.file_path ? getFileUrl(article.file_path) : null;
-
-    const handleDownload = async () => {
-        if (!article.file_path || !user) return;
-        try {
-            const res = await api.get(`/files/${article.file_path}`, { responseType: 'blob' });
-            const url = URL.createObjectURL(res.data);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = article.file_name || 'download';
-            a.click();
-            URL.revokeObjectURL(url);
-        } catch (err) { console.error(err); }
-    };
-
-    // Google Docs viewer for PDF/PPTX
-    const getGoogleViewerUrl = (url) => {
-        return `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
-    };
-
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center" data-testid="content-modal">
-            {/* Backdrop */}
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
-            {/* Modal */}
             <div className="relative w-full max-w-4xl max-h-[90vh] mx-4 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-fade-in">
-                {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
                     <div className="flex-1 min-w-0">
-                        <Badge className={`mb-1 ${categoryColors[article.category] || 'bg-gray-100 text-gray-800'}`}>
+                        <span className={`inline-block text-xs px-2 py-0.5 rounded mb-1 ${categoryColors[article.category] || 'bg-gray-100 text-gray-800'}`}>
                             {article.category}
-                        </Badge>
+                        </span>
                         <h2 className="font-['Barlow_Condensed'] text-xl font-bold uppercase truncate">{article.title}</h2>
                         <p className="text-xs text-gray-400">By {article.author_name}</p>
                     </div>
-                    <div className="flex items-center gap-2 ml-4">
-                        {article.file_path && user && (
-                            <Button size="sm" variant="outline" onClick={handleDownload} data-testid="modal-download-btn">
-                                <Download className="w-4 h-4 mr-1" /> Download
-                            </Button>
-                        )}
-                        {youtubeId && (
-                            <a href={`https://www.youtube.com/watch?v=${youtubeId}`} target="_blank" rel="noopener noreferrer">
-                                <Button size="sm" variant="outline"><ExternalLink className="w-4 h-4 mr-1" /> YouTube</Button>
-                            </a>
-                        )}
-                        <Button size="icon" variant="ghost" onClick={onClose} data-testid="close-modal-btn">
-                            <X className="w-5 h-5" />
-                        </Button>
-                    </div>
+                    <Button size="icon" variant="ghost" onClick={onClose} className="shrink-0 ml-2" data-testid="close-modal-btn">
+                        <X className="w-5 h-5" />
+                    </Button>
                 </div>
 
-                {/* Content area */}
                 <div className="flex-1 overflow-y-auto">
-                    {/* YouTube embed */}
-                    {youtubeId && (
-                        <div className="aspect-video bg-black">
-                            <iframe
-                                src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1`}
-                                title={article.title}
-                                className="w-full h-full"
-                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                allowFullScreen
-                            />
-                        </div>
-                    )}
-
-                    {/* Uploaded video */}
-                    {fileUrl && isVideo(article.file_name) && user && !youtubeId && (
-                        <div className="aspect-video bg-black">
-                            <video controls className="w-full h-full" preload="metadata">
-                                <source src={fileUrl} type={article.file_content_type || 'video/mp4'} />
-                                Your browser does not support the video tag.
-                            </video>
-                        </div>
-                    )}
-
-                    {/* PDF viewer */}
-                    {fileUrl && isPdf(article.file_name) && user && (
-                        <div className="aspect-[4/3] bg-gray-100">
-                            <iframe
-                                src={getGoogleViewerUrl(fileUrl)}
-                                title={article.file_name}
-                                className="w-full h-full border-0"
-                            />
-                        </div>
-                    )}
-
-                    {/* PPTX viewer via Google Docs */}
-                    {fileUrl && isPptx(article.file_name) && user && (
-                        <div className="aspect-video bg-gray-100">
-                            <iframe
-                                src={getGoogleViewerUrl(fileUrl)}
-                                title={article.file_name}
-                                className="w-full h-full border-0"
-                            />
-                        </div>
-                    )}
-
-                    {/* Image */}
-                    {fileUrl && isImage(article.file_name) && user && (
-                        <div className="flex justify-center bg-gray-50 p-4">
-                            <img src={fileUrl} alt={article.file_name} className="max-w-full max-h-[60vh] object-contain rounded" />
-                        </div>
-                    )}
-
-                    {/* Article image */}
-                    {article.image_url && !youtubeId && (
-                        <div className="flex justify-center bg-gray-50">
-                            <img src={article.image_url} alt={article.title} className="max-w-full max-h-[50vh] object-contain" />
-                        </div>
-                    )}
-
-                    {/* Text content */}
+                    <div className="px-6 pt-4">
+                        <MaterialMediaBody article={article} youtubeAutoplay />
+                    </div>
                     <div className="px-6 py-5">
                         <div className="prose prose-sm max-w-none">
-                            {article.content.split('\n').map((p, i) => (
+                            {(article.content || '').split('\n').map((p, i) => (
                                 p.trim() && <p key={i} className="mb-3 text-gray-700 leading-relaxed">{p}</p>
                             ))}
                         </div>
@@ -223,7 +110,7 @@ function ContentCard({ article, onClick, index }) {
         }
 
         // Uploaded video file
-        if (article.file_name && isVideo(article.file_name)) {
+        if (article.file_name && isVideoFile(article.file_name)) {
             return (
                 <div className={`w-full h-full bg-gradient-to-br ${gradient} flex flex-col items-center justify-center relative`}>
                     <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm border border-white/20">
@@ -294,7 +181,7 @@ function ContentCard({ article, onClick, index }) {
                 <h3 className="font-bold text-base mb-1.5 group-hover:text-[#0051BA] transition-colors line-clamp-2">
                     {article.title}
                 </h3>
-                <p className="text-gray-500 text-sm line-clamp-2 mb-3">{article.content.substring(0, 100)}</p>
+                <p className="text-gray-500 text-sm line-clamp-2 mb-3">{(article.content || '').substring(0, 100)}</p>
                 <div className="flex items-center justify-between text-xs text-gray-400">
                     <span>{article.author_name}</span>
                     <span>{new Date(article.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
@@ -311,20 +198,21 @@ export default function Education() {
     const [selectedArticle, setSelectedArticle] = useState(null);
 
     useEffect(() => {
-        loadArticles();
+        let cancelled = false;
+        (async () => {
+            setLoading(true);
+            try {
+                const category = activeCategory === 'all' ? undefined : activeCategory;
+                const response = await getArticles(category);
+                if (!cancelled) setArticles(response.data);
+            } catch (error) {
+                if (!cancelled) console.error('Error loading articles:', error);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
     }, [activeCategory]);
-
-    const loadArticles = async () => {
-        try {
-            const category = activeCategory === 'all' ? undefined : activeCategory;
-            const response = await getArticles(category);
-            setArticles(response.data);
-        } catch (error) {
-            console.error('Error loading articles:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     // Close modal on Escape
     useEffect(() => {

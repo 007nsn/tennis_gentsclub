@@ -230,8 +230,13 @@ export function useAdminData() {
     }, [loadAllData]);
 
     const handleDeleteArticle = useCallback(async (articleId) => {
-        await deleteArticle(articleId);
-        loadAllData();
+        try {
+            await deleteArticle(articleId);
+            toast.success('Content removed');
+            loadAllData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to delete content');
+        }
     }, [loadAllData]);
 
     const handleDeleteAnnouncement = useCallback(async (annId) => {
