@@ -245,7 +245,7 @@ class TennisBuddiesAPITester:
         # Submit a match result (requires auth)
         if self.token and self.created_team_id:
             match_data = {
-                "match_type": "solo",
+                "match_type": "singles",
                 "player_a_id": self.user_id,
                 "player_b_id": self.admin_id,
                 "score_a": 6,

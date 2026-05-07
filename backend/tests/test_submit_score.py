@@ -2,8 +2,8 @@
 
 Covers:
 - /api/weekly-events/with-schedules route (regression: must NOT collide with /weekly-events/{event_id})
-- POST /api/weekly-events/{event_id}/submit-score (admin + non-admin allowed, validation, edits)
-- solo_players.wins +1/undo behavior on edits
+- POST /api/weekly-events/{event_id}/submit-score (admin + non-admin allowed, validation, edits; 400 for non–2v2-doubles courts e.g. singles / Canadian doubles)
+- GET /solo-ladder reflects standard 2v2 doubles wins from scored schedule (not DB wins field)
 - Regression: GET /weekly-events/upcoming, GET /weekly-events/{event_id}
 """
 import os
@@ -185,6 +185,7 @@ class TestSubmitScoreValidation:
 # ---------------- 3) Wins delta on submit + edit ----------------
 
 class TestWinsDelta:
+    """Ladder wins are derived from schedule; submitting/editing scores updates computed wins."""
     def test_admin_submit_unscored_match_increments_winner_wins(self, admin_headers, seeded_event):
         """Submit a fresh match (round 2) and assert winner team gets +1 wins, losers unchanged."""
         # Refresh event to get current state

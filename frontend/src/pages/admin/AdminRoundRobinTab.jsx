@@ -191,7 +191,7 @@ export function AdminRoundRobinTab({ onClearEvents }) {
                                     <SelectContent>
                                         <SelectItem value="doubles_only">Doubles Only</SelectItem>
                                         <SelectItem value="hybrid">Hybrid</SelectItem>
-                                        <SelectItem value="singles_only">Singles Only</SelectItem>
+                                        <SelectItem value="singles_only">Singles only</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -272,7 +272,7 @@ export function AdminRoundRobinTab({ onClearEvents }) {
                                                     <Unlock className="w-3 h-3 mr-1" /> Reopen
                                                 </Button>
                                             )}
-                                            {confirmed.length >= 4 && (
+                                            {confirmed.length >= (scheduleMode === 'singles_only' ? 2 : 4) && (
                                                 <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleGenerate(ev)} disabled={loading}>
                                                     <Shuffle className="w-4 h-4 mr-1" />{ev.generated_schedule ? 'Regenerate' : 'Generate'} Schedule
                                                 </Button>

@@ -19,6 +19,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 import resend
 import requests as http_requests
 from itertools import combinations
+from collections import defaultdict
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -415,7 +416,7 @@ class GenerateDoublesRRRequest(BaseModel):
     num_courts: Optional[int] = None
     start_time: Optional[str] = None
     match_duration_minutes: Optional[int] = None
-    mode: Optional[str] = "hybrid"  # doubles_only, hybrid, singles_only
+    mode: Optional[str] = "hybrid"  # doubles_only, hybrid, singles_only (legacy: solo_only)
     allow_canadian_doubles: Optional[bool] = True
     optimize: Optional[str] = "balanced"  # balanced, maximize_play_time, maximize_fairness
 
@@ -933,8 +934,15 @@ async def delete_team(team_id: str, user: dict = Depends(get_admin_user)):
 
 @api_router.get("/solo-ladder", response_model=List[SoloPlayerResponse])
 async def get_solo_ladder():
-    players = await db.solo_players.find({}, {"_id": 0}).sort("wins", -1).to_list(1000)
-    return [SoloPlayerResponse(**p) for p in players]
+    """Ladder: win count from standard 2v2 doubles Sunday RR only (not DB wins field)."""
+    players = await db.solo_players.find({}, {"_id": 0}).to_list(1000)
+    rr_records = await _fetch_round_robin_scored_records()
+    ranked = []
+    for p in players:
+        w = sum(1 for x in _doubles_rr_wins_chrono(p["id"], rr_records) if x)
+        ranked.append(SoloPlayerResponse(id=p["id"], user_id=p["user_id"], name=p["name"], wins=w))
+    ranked.sort(key=lambda r: r.wins, reverse=True)
+    return ranked
 
 @api_router.put("/solo-ladder/{player_id}")
 async def update_solo_player(player_id: str, update_data: SoloPlayerUpdate, admin: dict = Depends(get_admin_user)):
@@ -1058,15 +1066,28 @@ async def generate_round_robin_schedule_endpoint(request: RoundRobinRequest, adm
 
 @api_router.post("/matches", response_model=MatchResponse)
 async def submit_match(match_data: MatchCreate, user: dict = Depends(get_current_user)):
+    mt = (match_data.match_type or "").strip().lower()
+    if mt != "team":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Only team-vs-team results may be submitted here (match_type 'team'). "
+                "Singles, Canadian doubles, and other ad-hoc formats are not accepted — "
+                "record Sunday 2v2 doubles via POST /api/weekly-events/{event_id}/submit-score."
+            ),
+        )
+    if not match_data.team_a_id or not match_data.team_b_id:
+        raise HTTPException(status_code=400, detail="team_a_id and team_b_id are required for team matches")
+
     match_id = str(uuid.uuid4())
     
     match = {
         "id": match_id,
-        "match_type": match_data.match_type,
+        "match_type": "team",
         "team_a_id": match_data.team_a_id,
         "team_b_id": match_data.team_b_id,
-        "player_a_id": match_data.player_a_id,
-        "player_b_id": match_data.player_b_id,
+        "player_a_id": None,
+        "player_b_id": None,
         "score_a": match_data.score_a,
         "score_b": match_data.score_b,
         "match_date": match_data.match_date,
@@ -1075,17 +1096,11 @@ async def submit_match(match_data: MatchCreate, user: dict = Depends(get_current
         "submitted_by_name": user["name"],
         "submitted_at": datetime.now(timezone.utc).isoformat()
     }
-    
-    if match_data.match_type == "team":
-        team_a = await db.teams.find_one({"id": match_data.team_a_id}, {"_id": 0})
-        team_b = await db.teams.find_one({"id": match_data.team_b_id}, {"_id": 0})
-        match["team_a_name"] = team_a["name"] if team_a else "Unknown"
-        match["team_b_name"] = team_b["name"] if team_b else "Unknown"
-    else:
-        player_a = await db.solo_players.find_one({"id": match_data.player_a_id}, {"_id": 0})
-        player_b = await db.solo_players.find_one({"id": match_data.player_b_id}, {"_id": 0})
-        match["player_a_name"] = player_a["name"] if player_a else "Unknown"
-        match["player_b_name"] = player_b["name"] if player_b else "Unknown"
+
+    team_a = await db.teams.find_one({"id": match_data.team_a_id}, {"_id": 0})
+    team_b = await db.teams.find_one({"id": match_data.team_b_id}, {"_id": 0})
+    match["team_a_name"] = team_a["name"] if team_a else "Unknown"
+    match["team_b_name"] = team_b["name"] if team_b else "Unknown"
     
     await db.matches.insert_one(match)
     
@@ -1133,11 +1148,7 @@ async def approve_match(match_id: str, user: dict = Depends(get_admin_user)):
         else:
             await db.teams.update_one({"id": match["team_b_id"]}, {"$inc": {"wins": 1, "points": winner_points}})
             await db.teams.update_one({"id": match["team_a_id"]}, {"$inc": {"losses": 1, "points": loser_points}})
-    else:
-        if match["score_a"] > match["score_b"]:
-            await db.solo_players.update_one({"id": match["player_a_id"]}, {"$inc": {"wins": 1}})
-        else:
-            await db.solo_players.update_one({"id": match["player_b_id"]}, {"$inc": {"wins": 1}})
+    # Singles (1v1) submissions do not change individual ladder — ladder uses doubles RR only.
     
     # Notify submitter
     submitter = await db.users.find_one({"id": match["submitted_by"]}, {"_id": 0})
@@ -1499,33 +1510,15 @@ async def get_player_stats(player_id: str):
     player = await db.solo_players.find_one({"id": player_id}, {"_id": 0})
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
-    
-    # Get all matches for this player
-    matches = await db.matches.find({
-        "status": "approved",
-        "match_type": "solo",
-        "$or": [{"player_a_id": player_id}, {"player_b_id": player_id}]
-    }, {"_id": 0}).sort("match_date", -1).to_list(500)
-    
-    total_matches = len(matches)
-    wins = 0
-    recent_form = []
-    
-    for match in matches:
-        is_player_a = match["player_a_id"] == player_id
-        player_score = match["score_a"] if is_player_a else match["score_b"]
-        opponent_score = match["score_b"] if is_player_a else match["score_a"]
-        
-        if player_score > opponent_score:
-            wins += 1
-            if len(recent_form) < 5:
-                recent_form.append("W")
-        else:
-            if len(recent_form) < 5:
-                recent_form.append("L")
-    
+
+    rr_records = await _fetch_round_robin_scored_records()
+
+    chrono = _doubles_rr_wins_chrono(player_id, rr_records)
+    wins = sum(1 for w in chrono if w)
+    total_matches = len(chrono)
     win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
-    
+    recent_form = _recent_form_from_chrono(chrono)
+
     return PlayerStatsResponse(
         player_id=player_id,
         player_name=player["name"],
@@ -1539,43 +1532,24 @@ async def get_player_stats(player_id: str):
 async def get_all_player_stats():
     """Get stats for all players"""
     players = await db.solo_players.find({}, {"_id": 0}).to_list(100)
+    rr_records = await _fetch_round_robin_scored_records()
     stats = []
-    
+
     for player in players:
-        matches = await db.matches.find({
-            "status": "approved",
-            "match_type": "solo",
-            "$or": [{"player_a_id": player["id"]}, {"player_b_id": player["id"]}]
-        }, {"_id": 0}).to_list(500)
-        
-        total_matches = len(matches)
-        wins = 0
-        recent_form = []
-        
-        for match in matches:
-            is_player_a = match["player_a_id"] == player["id"]
-            player_score = match["score_a"] if is_player_a else match["score_b"]
-            opponent_score = match["score_b"] if is_player_a else match["score_a"]
-            
-            if player_score > opponent_score:
-                wins += 1
-                if len(recent_form) < 5:
-                    recent_form.append("W")
-            else:
-                if len(recent_form) < 5:
-                    recent_form.append("L")
-        
+        chrono = _doubles_rr_wins_chrono(player["id"], rr_records)
+        wins = sum(1 for w in chrono if w)
+        total_matches = len(chrono)
         win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
-        
+
         stats.append({
             "player_id": player["id"],
             "player_name": player["name"],
             "total_matches": total_matches,
             "wins": wins,
             "win_rate": round(win_rate, 1),
-            "recent_form": recent_form
+            "recent_form": _recent_form_from_chrono(chrono),
         })
-    
+
     # Sort by wins descending
     stats.sort(key=lambda x: x["wins"], reverse=True)
     return stats
@@ -1584,35 +1558,44 @@ async def get_all_player_stats():
 
 @api_router.get("/head-to-head/{player_a_id}/{player_b_id}")
 async def get_head_to_head(player_a_id: str, player_b_id: str):
-    """Get head-to-head record between two players"""
+    """Head-to-head when both faced each other on opposite sides (standard doubles RR only)."""
     player_a = await db.solo_players.find_one({"id": player_a_id}, {"_id": 0})
     player_b = await db.solo_players.find_one({"id": player_b_id}, {"_id": 0})
     if not player_a or not player_b:
         raise HTTPException(status_code=404, detail="Player not found")
 
-    matches = await db.matches.find({
-        "status": "approved",
-        "match_type": "solo",
-        "$or": [
-            {"player_a_id": player_a_id, "player_b_id": player_b_id},
-            {"player_a_id": player_b_id, "player_b_id": player_a_id},
-        ]
-    }, {"_id": 0}).sort("match_date", -1).to_list(500)
+    rr_records = await _fetch_round_robin_scored_records()
+
+    encounters = []
+    for rec in rr_records:
+        a_on_side_a = player_a_id in rec["team_a_ids"] and player_b_id in rec["team_b_ids"]
+        a_on_side_b = player_a_id in rec["team_b_ids"] and player_b_id in rec["team_a_ids"]
+        if not (a_on_side_a or a_on_side_b):
+            continue
+        encounters.append((rec["sort_key"], rec))
+
+    encounters.sort(key=lambda x: x[0], reverse=True)
 
     a_wins = 0
     b_wins = 0
     match_list = []
-    for m in matches:
-        a_is_player_a = m["player_a_id"] == player_a_id
-        a_score = m["score_a"] if a_is_player_a else m["score_b"]
-        b_score = m["score_b"] if a_is_player_a else m["score_a"]
+    for _sort_key, payload in encounters:
+        rec = payload
+        if player_a_id in rec["team_a_ids"]:
+            a_score = rec["score_a"]
+            b_score = rec["score_b"]
+        else:
+            a_score = rec["score_b"]
+            b_score = rec["score_a"]
         a_won = a_score > b_score
+        display_date = rec.get("event_date") or rec["sort_key"]
+
         if a_won:
             a_wins += 1
         else:
             b_wins += 1
         match_list.append({
-            "date": m["match_date"],
+            "date": display_date,
             "a_score": a_score,
             "b_score": b_score,
             "winner": player_a["name"] if a_won else player_b["name"],
@@ -1621,7 +1604,7 @@ async def get_head_to_head(player_a_id: str, player_b_id: str):
     return {
         "player_a": {"id": player_a_id, "name": player_a["name"]},
         "player_b": {"id": player_b_id, "name": player_b["name"]},
-        "total_matches": len(matches),
+        "total_matches": len(match_list),
         "a_wins": a_wins,
         "b_wins": b_wins,
         "matches": match_list,
@@ -1629,20 +1612,18 @@ async def get_head_to_head(player_a_id: str, player_b_id: str):
 
 @api_router.get("/head-to-head-matrix")
 async def get_head_to_head_matrix():
-    """Get full head-to-head matrix for all players"""
-    players = await db.solo_players.find({}, {"_id": 0}).sort("wins", -1).to_list(100)
-    all_matches = await db.matches.find(
-        {"status": "approved", "match_type": "solo"}, {"_id": 0}
-    ).to_list(5000)
+    """Head-to-head matrix from standard doubles RR only (not 1v1 or Canadian)."""
+    players = await db.solo_players.find({}, {"_id": 0}).sort("name", 1).to_list(100)
+    rr_records = await _fetch_round_robin_scored_records()
 
-    # Build a wins lookup: (winner_id, loser_id) -> count
     wins_map = {}
-    for m in all_matches:
-        a_won = m["score_a"] > m["score_b"]
-        winner = m["player_a_id"] if a_won else m["player_b_id"]
-        loser = m["player_b_id"] if a_won else m["player_a_id"]
-        key = (winner, loser)
-        wins_map[key] = wins_map.get(key, 0) + 1
+    for rec in rr_records:
+        winners = rec["team_a_ids"] if rec["score_a"] > rec["score_b"] else rec["team_b_ids"]
+        losers = rec["team_b_ids"] if rec["score_a"] > rec["score_b"] else rec["team_a_ids"]
+        for w in winners:
+            for l in losers:
+                key = (w, l)
+                wins_map[key] = wins_map.get(key, 0) + 1
 
     player_list = [{"id": p["id"], "name": p["name"]} for p in players]
     matrix = {}
@@ -1661,17 +1642,28 @@ async def get_head_to_head_matrix():
 
 # ============ BEST PARTNERSHIPS ============
 
+def _pick_best_chemistry_partner(entries: list):
+    """Partner with highest joint wins (same ladder points as Player Ladder when paired on Sunday RR)."""
+    if not entries:
+        return None
+    return max(
+        entries,
+        key=lambda e: (
+            e["wins"],
+            (e["wins"] / (e["wins"] + e["losses"])) if (e["wins"] + e["losses"]) > 0 else -1.0,
+            e["matches_together"],
+        ),
+    )
+
+
 @api_router.get("/partnerships")
 async def get_best_partnerships():
-    """Analyze all generated doubles schedules to find best player pairings"""
-    # Get all events with generated schedules
+    """Sunday round-robin 2v2 doubles only: joint wins (ladder points when paired) + each player's top partner."""
     events = await db.weekly_events.find(
         {"generated_schedule": {"$ne": None}}, {"_id": 0}
     ).to_list(500)
 
-    # Track partnership stats: (sorted pair) -> {matches_together, wins, losses}
     pair_stats = {}
-    # Build a player name lookup
     all_players = await db.solo_players.find({}, {"_id": 0}).to_list(200)
     name_map = {p["id"]: p["name"] for p in all_players}
 
@@ -1679,74 +1671,89 @@ async def get_best_partnerships():
         schedule = event.get("generated_schedule", [])
         for rnd in schedule:
             for match in rnd.get("matches", []):
-                team_a_ids = [p["id"] for p in match.get("team_a", [])]
-                team_b_ids = [p["id"] for p in match.get("team_b", [])]
+                if not _is_standard_doubles_rr_match(match):
+                    continue
+                team_a_ids = [p["id"] for p in match.get("team_a", []) if p.get("id")]
+                team_b_ids = [p["id"] for p in match.get("team_b", []) if p.get("id")]
+                if len(team_a_ids) != 2 or len(team_b_ids) != 2:
+                    continue
 
-                # Register partnerships
-                if len(team_a_ids) == 2:
-                    pair_key_a = tuple(sorted(team_a_ids))
-                    if pair_key_a not in pair_stats:
-                        pair_stats[pair_key_a] = {"together": 0, "wins": 0, "losses": 0}
-                    pair_stats[pair_key_a]["together"] += 1
+                sa, sb = match.get("score_a"), match.get("score_b")
+                scored = sa is not None and sb is not None and sa != sb
+                a_won = sa > sb if scored else None
 
-                if len(team_b_ids) == 2:
-                    pair_key_b = tuple(sorted(team_b_ids))
-                    if pair_key_b not in pair_stats:
-                        pair_stats[pair_key_b] = {"together": 0, "wins": 0, "losses": 0}
-                    pair_stats[pair_key_b]["together"] += 1
-
-    # Also mine approved solo matches for doubles context
-    # Check match results stored with team references
-    team_matches = await db.matches.find(
-        {"status": "approved", "match_type": "team"}, {"_id": 0}
-    ).to_list(1000)
-
-    for m in team_matches:
-        if m.get("team_a_id") and m.get("team_b_id"):
-            team_a = await db.teams.find_one({"id": m["team_a_id"]}, {"_id": 0})
-            team_b = await db.teams.find_one({"id": m["team_b_id"]}, {"_id": 0})
-            if team_a and team_b:
-                a_members = team_a.get("member_ids", [])
-                b_members = team_b.get("member_ids", [])
-                a_won = m.get("score_a", 0) > m.get("score_b", 0)
-
-                if len(a_members) == 2:
-                    pk = tuple(sorted(a_members))
-                    if pk not in pair_stats:
-                        pair_stats[pk] = {"together": 0, "wins": 0, "losses": 0}
-                    pair_stats[pk]["together"] += 1
+                pair_key_a = tuple(sorted(team_a_ids))
+                if pair_key_a not in pair_stats:
+                    pair_stats[pair_key_a] = {"together": 0, "wins": 0, "losses": 0}
+                pair_stats[pair_key_a]["together"] += 1
+                if scored:
                     if a_won:
-                        pair_stats[pk]["wins"] += 1
+                        pair_stats[pair_key_a]["wins"] += 1
                     else:
-                        pair_stats[pk]["losses"] += 1
+                        pair_stats[pair_key_a]["losses"] += 1
 
-                if len(b_members) == 2:
-                    pk = tuple(sorted(b_members))
-                    if pk not in pair_stats:
-                        pair_stats[pk] = {"together": 0, "wins": 0, "losses": 0}
-                    pair_stats[pk]["together"] += 1
+                pair_key_b = tuple(sorted(team_b_ids))
+                if pair_key_b not in pair_stats:
+                    pair_stats[pair_key_b] = {"together": 0, "wins": 0, "losses": 0}
+                pair_stats[pair_key_b]["together"] += 1
+                if scored:
                     if not a_won:
-                        pair_stats[pk]["wins"] += 1
+                        pair_stats[pair_key_b]["wins"] += 1
                     else:
-                        pair_stats[pk]["losses"] += 1
+                        pair_stats[pair_key_b]["losses"] += 1
 
-    # Build response
-    partnerships = []
+    by_player = defaultdict(list)
     for (p1, p2), stats in pair_stats.items():
-        total = stats["wins"] + stats["losses"]
-        win_rate = round((stats["wins"] / total * 100), 1) if total > 0 else 0
-        partnerships.append({
+        w, l, t = stats["wins"], stats["losses"], stats["together"]
+        by_player[p1].append({"partner_id": p2, "wins": w, "losses": l, "matches_together": t})
+        by_player[p2].append({"partner_id": p1, "wins": w, "losses": l, "matches_together": t})
+
+    ranked_pairs = []
+    for (p1, p2), stats in pair_stats.items():
+        w, l = stats["wins"], stats["losses"]
+        total_decided = w + l
+        win_rate = round((w / total_decided * 100), 1) if total_decided > 0 else 0
+        ranked_pairs.append({
             "player_a": {"id": p1, "name": name_map.get(p1, "Unknown")},
             "player_b": {"id": p2, "name": name_map.get(p2, "Unknown")},
             "matches_together": stats["together"],
-            "wins": stats["wins"],
-            "losses": stats["losses"],
+            "wins": w,
+            "losses": l,
             "win_rate": win_rate,
         })
 
-    # Sort by matches together desc, then win_rate desc
-    partnerships.sort(key=lambda x: (x["matches_together"], x["win_rate"]), reverse=True)
-    return partnerships
+    ranked_pairs.sort(key=lambda x: (x["wins"], x["win_rate"], x["matches_together"]), reverse=True)
+
+    player_best_partner = []
+    for pl in sorted(all_players, key=lambda x: (x.get("name") or "").lower()):
+        pid = pl["id"]
+        top = _pick_best_chemistry_partner(by_player.get(pid, []))
+        row = {
+            "player_id": pid,
+            "player_name": pl["name"],
+            "best_partner": None,
+        }
+        if top:
+            bid = top["partner_id"]
+            tw, tl = top["wins"], top["losses"]
+            player_best_partner.append({
+                **row,
+                "best_partner": {
+                    "id": bid,
+                    "name": name_map.get(bid, "Unknown"),
+                    "wins_together": tw,
+                    "losses_together": tl,
+                    "matches_together": top["matches_together"],
+                    "win_rate": round((tw / (tw + tl) * 100), 1) if (tw + tl) > 0 else 0.0,
+                },
+            })
+        else:
+            player_best_partner.append(row)
+
+    return {
+        "ranked_pairs": ranked_pairs,
+        "player_best_partner": player_best_partner,
+    }
 
 # ============ ANNOUNCEMENTS ROUTES ============
 
@@ -1899,7 +1906,7 @@ async def chat_with_bot(message: ChatMessageCreate, user: dict = Depends(get_cur
 3. Fitness tips for tennis players
 4. Club-specific information (schedules, ladder rankings, how to submit match results)
 
-Be encouraging, concise, and helpful. If asked about specific club data like schedules or rankings, explain that users can find this in the Schedule, Team Ladder, or Solo Ladder pages of the app.
+Be encouraging, concise, and helpful. If asked about specific club data like schedules or rankings, explain that users can find this in the Schedule, Team Ladder, or Ladder (rankings) pages of the app.
 """
         ).with_model("openai", "gpt-5.2")
         
@@ -2097,33 +2104,114 @@ Aim for angles to put the ball away. A cross-court volley is often more effectiv
 
 # ============ SEASON STANDINGS ============
 
-def calculate_player_season_stats(player: dict, matches: list) -> dict:
-    """Calculate cumulative season stats for a single player."""
-    total_matches = len(matches)
-    wins = 0
-    losses = 0
+def _is_standard_doubles_rr_match(match: dict) -> bool:
+    """RR rows that count for ratings: 2v2 doubles only (excludes singles 1v1 and Canadian doubles)."""
+    mt = (match.get("match_type") or "doubles").strip().lower()
+    if mt in ("singles", "solo", "canadian_doubles"):  # solo: legacy misnamed rows
+        return False
+    team_a_ids = [p["id"] for p in match.get("team_a", []) if p.get("id")]
+    team_b_ids = [p["id"] for p in match.get("team_b", []) if p.get("id")]
+    return len(team_a_ids) == 2 and len(team_b_ids) == 2
+
+
+def _collect_round_robin_scored_records(events: list) -> list:
+    """Flatten weekly_events: scored standard 2v2 doubles only (standings / H2H / duos / ladder)."""
+    records = []
+    for event in events:
+        event_date = event.get("event_date") or ""
+        event_id = event.get("id") or ""
+        for rnd in event.get("generated_schedule") or []:
+            round_num = rnd.get("round")
+            if round_num is None:
+                round_num = 0
+            for match in rnd.get("matches") or []:
+                if not _is_standard_doubles_rr_match(match):
+                    continue
+                sa, sb = match.get("score_a"), match.get("score_b")
+                if sa is None or sb is None or sa == sb:
+                    continue
+                team_a_ids = [p["id"] for p in match.get("team_a", []) if p.get("id")]
+                team_b_ids = [p["id"] for p in match.get("team_b", []) if p.get("id")]
+                if not team_a_ids or not team_b_ids:
+                    continue
+                court = match.get("court")
+                if court is None:
+                    court = 0
+                sub = match.get("submitted_at") or ""
+                sort_key = f"{event_date}|{int(round_num):05d}|{int(court):05d}|{sub}"
+                records.append({
+                    "event_id": event_id,
+                    "event_date": event_date,
+                    "round_num": round_num,
+                    "court": court,
+                    "submitted_at": sub,
+                    "team_a_ids": team_a_ids,
+                    "team_b_ids": team_b_ids,
+                    "score_a": sa,
+                    "score_b": sb,
+                    "sort_key": sort_key,
+                })
+    return records
+
+
+async def _fetch_round_robin_scored_records() -> list:
+    events = await db.weekly_events.find(
+        {"generated_schedule": {"$ne": None}}, {"_id": 0}
+    ).to_list(500)
+    return _collect_round_robin_scored_records(events)
+
+
+def _player_timeline_entries_for_rr(player_id: str, rr_records: list) -> list:
+    """(sort_key, won) for standard doubles RR only (records list is pre-filtered)."""
+    entries = []
+    for rec in rr_records:
+        if player_id in rec["team_a_ids"]:
+            won = rec["score_a"] > rec["score_b"]
+            entries.append((rec["sort_key"], won))
+        elif player_id in rec["team_b_ids"]:
+            won = rec["score_b"] > rec["score_a"]
+            entries.append((rec["sort_key"], won))
+    return entries
+
+
+def _doubles_rr_wins_chrono(player_id: str, rr_records: list) -> list:
+    """Chronological win bools from standard 2v2 doubles RR only."""
+    entries = _player_timeline_entries_for_rr(player_id, rr_records)
+    entries.sort(key=lambda x: x[0])
+    return [won for _, won in entries]
+
+
+def _recent_form_from_chrono(chrono: list, limit: int = 5) -> list:
+    """Most-recent-first W/L markers (matches prior Player Stats behavior)."""
+    tail = chrono[-limit:]
+    return ["W" if w else "L" for w in reversed(tail)]
+
+
+def calculate_player_season_doubles_rr_stats(player: dict, rr_records: list) -> dict:
+    """Season stats from standard Sunday doubles RR only."""
+    chrono = _doubles_rr_wins_chrono(player["id"], rr_records)
+    return calculate_player_season_stats_from_chrono(player, chrono)
+
+
+def calculate_player_season_stats_from_chrono(player: dict, chronological_wins: list) -> dict:
+    """chronological_wins: list of bool in time order (True = win)."""
+    total_matches = len(chronological_wins)
+    wins = sum(1 for w in chronological_wins if w)
+    losses = total_matches - wins
     current_streak = 0
     best_streak = 0
     temp_streak = 0
     last_result = None
 
-    for match in matches:
-        is_player_a = match["player_a_id"] == player["id"]
-        player_score = match["score_a"] if is_player_a else match["score_b"]
-        opponent_score = match["score_b"] if is_player_a else match["score_a"]
-        won = player_score > opponent_score
-
+    for won in chronological_wins:
         if won:
-            wins += 1
             temp_streak = temp_streak + 1 if last_result == "W" else 1
             last_result = "W"
             current_streak = temp_streak
         else:
-            losses += 1
             temp_streak = temp_streak - 1 if last_result == "L" else -1
             last_result = "L"
             current_streak = temp_streak
-
         if temp_streak > best_streak:
             best_streak = temp_streak
 
@@ -2143,19 +2231,14 @@ def calculate_player_season_stats(player: dict, matches: list) -> dict:
 
 @api_router.get("/season-standings")
 async def get_season_standings():
-    """Get season standings with cumulative stats for all players"""
+    """Season standings from standard 2v2 doubles Sunday RR only."""
     players = await db.solo_players.find({}, {"_id": 0}).to_list(100)
+    rr_records = await _fetch_round_robin_scored_records()
     standings = []
-    
+
     for player in players:
-        matches = await db.matches.find({
-            "status": "approved",
-            "match_type": "solo",
-            "$or": [{"player_a_id": player["id"]}, {"player_b_id": player["id"]}]
-        }, {"_id": 0}).sort("match_date", 1).to_list(500)
-        
-        standings.append(calculate_player_season_stats(player, matches))
-    
+        standings.append(calculate_player_season_doubles_rr_stats(player, rr_records))
+
     standings.sort(key=lambda x: (x["points"], x["win_rate"]), reverse=True)
     return standings
 
@@ -2568,7 +2651,7 @@ def _generate_doubles_only_round_robin(players: List[dict], num_courts: int, num
 
 
 def _generate_singles_round_robin(players: List[dict], num_courts: int, num_rounds: int, optimize: str) -> List[dict]:
-    """1v1 singles; teams are length-1 player lists for UI compatibility."""
+    """Tennis singles (1v1) round-robin; teams are length-1 player lists for UI compatibility."""
     import random
     n = len(players)
     if n < 2:
@@ -2659,7 +2742,7 @@ def _hybrid_assign_round(
     pens: dict,
     allow_canadian_doubles: bool,
 ) -> tuple:
-    """Greedily assign doubles, then singles, then optional Canadian (2v1). Returns (matches_raw, remaining_ids)."""
+    """Greedily assign doubles, then singles (1v1) courts, then optional Canadian (2v1). Returns (matches_raw, remaining_ids)."""
     import random
     remaining = list(pool)
     matches_raw = []
@@ -2726,11 +2809,11 @@ def _hybrid_assign_round(
 
     if courts_left > 0 and len(remaining) == 3 and allow_canadian_doubles:
         random.shuffle(remaining)
-        a1, a2, solo = remaining[0], remaining[1], remaining[2]
+        a1, a2, single_vs_pair = remaining[0], remaining[1], remaining[2]
         matches_raw.append({
             "match_type": "canadian_doubles",
             "team_a": [a1, a2],
-            "team_b": [solo],
+            "team_b": [single_vs_pair],
             "court": len(matches_raw) + 1,
         })
         remaining = []
@@ -2756,15 +2839,15 @@ def _apply_match_histories(matches_raw: List[dict], partner_history: dict, oppon
             last_partners[ta[1]] = ta[0]
             last_partners[tb[0]] = tb[1]
             last_partners[tb[1]] = tb[0]
-        elif mt == "singles":
+        elif mt in ("solo", "singles"):
             p1, p2 = ta[0], tb[0]
             opponent_history[tuple(sorted((p1, p2)))] = opponent_history.get(tuple(sorted((p1, p2))), 0) + 1
         elif mt == "canadian_doubles":
             pair_a = tuple(sorted(ta))
             partner_history[pair_a] = partner_history.get(pair_a, 0) + 1
-            solo = tb[0]
+            singles_player = tb[0]
             for pa in ta:
-                opp = tuple(sorted((pa, solo)))
+                opp = tuple(sorted((pa, singles_player)))
                 opponent_history[opp] = opponent_history.get(opp, 0) + 1
             last_partners[ta[0]] = ta[1]
             last_partners[ta[1]] = ta[0]
@@ -2777,7 +2860,7 @@ def _generate_hybrid_round_robin(
     allow_canadian_doubles: bool,
     optimize: str,
 ) -> List[dict]:
-    """Mix doubles, singles, and optional Canadian doubles based on player/court counts."""
+    """Mix doubles, singles (1v1), and optional Canadian doubles based on player/court counts."""
     import random
     n = len(players)
     if n < 2:
@@ -2837,6 +2920,24 @@ def _generate_hybrid_round_robin(
     return rounds
 
 
+def _normalize_rr_schedule_mode(mode: Optional[str]) -> str:
+    """Canonical weekly schedule mode; legacy clients may send solo_only."""
+    m = (mode or "hybrid").strip().lower()
+    if m == "solo_only":
+        m = "singles_only"
+    if m not in ("doubles_only", "hybrid", "singles_only"):
+        return "hybrid"
+    return m
+
+
+def _normalize_rr_match_type(mt: Optional[str]) -> str:
+    """Schedule row match_type for labels; legacy misnamed 'solo' rows treated as singles."""
+    m = (mt or "doubles").strip().lower()
+    if m == "solo":
+        return "singles"
+    return m
+
+
 def generate_doubles_round_robin(
     players: List[dict],
     num_courts: int,
@@ -2847,12 +2948,10 @@ def generate_doubles_round_robin(
 ) -> List[dict]:
     """
     Weekly schedule generation.
-    mode: doubles_only | singles_only | hybrid
+    mode: doubles_only | hybrid | singles_only (legacy alias: solo_only)
     optimize: balanced | maximize_play_time | maximize_fairness (tunes scoring penalties)
     """
-    mode = (mode or "hybrid").strip().lower()
-    if mode not in ("doubles_only", "hybrid", "singles_only"):
-        mode = "hybrid"
+    mode = _normalize_rr_schedule_mode(mode)
     if mode == "singles_only":
         return _generate_singles_round_robin(players, num_courts, num_rounds, optimize)
     if mode == "doubles_only":
@@ -2956,20 +3055,9 @@ class RoundRobinScoreSubmit(BaseModel):
     score_b: int
 
 
-def _apply_solo_wins_delta(winner_ids: list, loser_ids: list, delta: int = 1):
-    """Return coroutines to apply wins +/- delta to winners and losses to losers.
-    delta=1 applies, delta=-1 undoes."""
-    return [
-        db.solo_players.update_many({"id": {"$in": winner_ids}}, {"$inc": {"wins": delta}})
-    ]
-
-
 @api_router.post("/weekly-events/{event_id}/submit-score")
 async def submit_roundrobin_score(event_id: str, data: RoundRobinScoreSubmit, user: dict = Depends(get_current_user)):
-    """Any authenticated user can submit (or edit) a score for a specific
-    round-robin match. Updates solo_players.wins accordingly (handles edits by
-    undoing the previous winner wins before applying the new result).
-    """
+    """Submit RR score. Standings/ladder/stats read scores from the schedule (standard 2v2 doubles only)."""
     event = await db.weekly_events.find_one({"id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -2984,6 +3072,11 @@ async def submit_roundrobin_score(event_id: str, data: RoundRobinScoreSubmit, us
     match = next((m for m in round_obj.get("matches", []) if m.get("court") == data.court), None)
     if not match:
         raise HTTPException(status_code=404, detail=f"Match on court {data.court} in round {data.round_num} not found")
+    if not _is_standard_doubles_rr_match(match):
+        raise HTTPException(
+            status_code=400,
+            detail="Scores can only be saved for standard 2v2 doubles round-robin courts (not singles or Canadian doubles).",
+        )
 
     if data.score_a < 0 or data.score_b < 0 or data.score_a > 20 or data.score_b > 20:
         raise HTTPException(status_code=400, detail="Scores must be between 0 and 20")
@@ -2994,17 +3087,6 @@ async def submit_roundrobin_score(event_id: str, data: RoundRobinScoreSubmit, us
     team_b_ids = [p["id"] for p in match.get("team_b", []) if p.get("id")]
     if not team_a_ids or not team_b_ids:
         raise HTTPException(status_code=400, detail="Match has missing player data; cannot score")
-
-    # Undo previous result if already scored
-    prev_a = match.get("score_a")
-    prev_b = match.get("score_b")
-    if prev_a is not None and prev_b is not None and prev_a != prev_b:
-        prev_winners = team_a_ids if prev_a > prev_b else team_b_ids
-        await db.solo_players.update_many({"id": {"$in": prev_winners}}, {"$inc": {"wins": -1}})
-
-    # Apply new result
-    new_winners = team_a_ids if data.score_a > data.score_b else team_b_ids
-    await db.solo_players.update_many({"id": {"$in": new_winners}}, {"$inc": {"wins": 1}})
 
     # Update the nested match in the stored schedule
     match["score_a"] = data.score_a
@@ -3308,17 +3390,19 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
         raise HTTPException(status_code=404, detail="Event not found")
 
     confirmed = event.get("confirmed_players") or event.get("approved_players") or []
-    if len(confirmed) < 4:
-        raise HTTPException(status_code=400, detail=f"Need at least 4 confirmed players (have {len(confirmed)})")
+    sch_mode = _normalize_rr_schedule_mode(data.mode)
+    min_players = 2 if sch_mode == "singles_only" else 4
+    if len(confirmed) < min_players:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Need at least {min_players} confirmed players (have {len(confirmed)})",
+        )
 
     settings = await db.settings.find_one({"type": "club"}, {"_id": 0}) or {}
     nc = data.num_courts or event.get("num_courts") or settings.get("num_courts", 2)
     st = data.start_time or event.get("start_time") or settings.get("default_start_time", "09:00")
     dur = data.match_duration_minutes or settings.get("match_duration_minutes", 30)
     rr_rounds = max(1, min(5, int(settings.get("round_robin_rounds", 3))))
-    sch_mode = (data.mode or "hybrid").strip().lower()
-    if sch_mode not in ("doubles_only", "hybrid", "singles_only"):
-        sch_mode = "hybrid"
     allow_cd = True if data.allow_canadian_doubles is None else bool(data.allow_canadian_doubles)
     sch_opt = (data.optimize or "balanced").strip().lower()
 
@@ -3345,7 +3429,7 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
             "round_robin_rounds": rr_rounds,
             "start_time": st,
             "match_duration": dur,
-            "mode": data.mode or "hybrid",
+            "mode": sch_mode,
             "allow_canadian_doubles": bool(data.allow_canadian_doubles),
             "optimize": data.optimize or "balanced",
         }
@@ -3358,8 +3442,8 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
         for m in r["matches"]:
             ta = " & ".join([p["name"] for p in m["team_a"]])
             tb = " & ".join([p["name"] for p in m["team_b"]])
-            mt = m.get("match_type", "doubles")
-            label = {"singles": "[Singles] ", "canadian_doubles": "[Canadian] ", "doubles": ""}.get(mt, "")
+            mt_norm = _normalize_rr_match_type(m.get("match_type", "doubles"))
+            label = {"singles": "[Singles] ", "canadian_doubles": "[Canadian] ", "doubles": ""}.get(mt_norm, "")
             lines.append(f"  Court {m['court']}: {label}{ta}  vs  {tb}")
         if r.get("byes"):
             lines.append(f"  Bye: {', '.join([b['name'] for b in r['byes']])}")
@@ -3387,7 +3471,7 @@ async def generate_doubles_schedule(event_id: str, data: GenerateDoublesRRReques
     return {
         "message": f"Schedule generated: {len(rounds)} rounds",
         "rounds": rounds,
-        "mode": data.mode or "hybrid",
+        "mode": sch_mode,
         "allow_canadian_doubles": bool(data.allow_canadian_doubles),
         "optimize": data.optimize or "balanced",
     }

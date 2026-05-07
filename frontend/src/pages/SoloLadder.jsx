@@ -37,10 +37,10 @@ export default function SoloLadder() {
                 <div className="flex items-center gap-3 mb-2">
                     <User className="w-8 h-8 text-[#0051BA]" />
                     <h1 className="font-['Barlow_Condensed'] text-4xl md:text-5xl font-black uppercase tracking-tight text-[#0F172A]">
-                        Solo Ladder
+                        Player Ladder
                     </h1>
                 </div>
-                <p className="text-gray-600">Individual player rankings • Each set win = 1 point</p>
+                <p className="text-gray-600">Individual rankings • Count only Sunday <strong>2v2 doubles</strong> round-robin results (not singles or Canadian doubles).</p>
             </div>
 
             {/* Top 3 Cards */}
@@ -138,10 +138,9 @@ export default function SoloLadder() {
             {/* Info Card */}
             <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] mt-6 bg-[#0051BA]/5">
                 <CardContent className="p-6">
-                    <h4 className="font-bold mb-2">How the Solo Ladder Works</h4>
+                    <h4 className="font-bold mb-2">How the Player Ladder works</h4>
                     <p className="text-gray-600 text-sm">
-                        Each match is a single set. Win a set = earn 1 point. 
-                        Your total wins determine your position in the ladder. Simple as that!
+                        Each Sunday <strong>2v2 doubles</strong> match you win counts as one win. Singles and Canadian doubles do not affect this ladder.
                     </p>
                 </CardContent>
             </Card>

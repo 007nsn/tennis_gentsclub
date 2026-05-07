@@ -153,7 +153,7 @@ export default function MatchHistory() {
                                                     {match.score_a} - {match.score_b}
                                                 </div>
                                                 <Badge className="bg-green-100 text-green-800">
-                                                    {match.match_type === 'team' ? 'Team' : 'Solo'}
+                                                    {match.match_type === 'team' ? 'Team' : 'Singles'}
                                                 </Badge>
                                             </div>
                                         </div>

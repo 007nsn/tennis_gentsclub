@@ -59,7 +59,7 @@ export default function SeasonStandings() {
                         Season Standings
                     </h1>
                 </div>
-                <p className="text-gray-600">Cumulative stats for the current season</p>
+                <p className="text-gray-600">Sunday <strong>2v2 doubles</strong> round-robin only (not singles or Canadian doubles).</p>
             </div>
 
             {/* Top 3 Podium */}

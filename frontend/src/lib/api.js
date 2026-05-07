@@ -65,7 +65,6 @@ export const getSoloLadder = () => api.get('/solo-ladder');
 export const updateSoloPlayer = (id, data) => api.put(`/solo-ladder/${id}`, data);
 
 // Matches
-export const submitMatch = (data) => api.post('/matches', data);
 export const getMatches = (status) => api.get('/matches', { params: { status } });
 export const approveMatch = (id) => api.put(`/matches/${id}/approve`);
 export const rejectMatch = (id) => api.put(`/matches/${id}/reject`);

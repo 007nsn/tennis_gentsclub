@@ -172,7 +172,7 @@ export function AdminPlayersTab({ soloPlayers, users, loading, onUpdatePlayer, o
                 <div className="grid lg:grid-cols-2 gap-6">
                 <Card className="border-none shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
                     <CardHeader>
-                        <CardTitle>Solo Ladder Players</CardTitle>
+                        <CardTitle>Players (rankings)</CardTitle>
                         <CardDescription>Edit player wins</CardDescription>
                     </CardHeader>
                     <CardContent>

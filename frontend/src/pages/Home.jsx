@@ -53,8 +53,8 @@ export default function Home() {
         },
         {
             icon: Users,
-            title: 'Solo Ladder',
-            description: 'Individual player rankings and progress',
+            title: 'Player Ladder',
+            description: 'Rankings from Sunday 2v2 doubles round robins',
             link: '/solo-ladder',
             color: 'bg-[#E06040]'
         },
