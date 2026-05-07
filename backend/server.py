@@ -119,6 +119,24 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     password: Optional[str] = None
 
+
+class UserSelfUpdate(BaseModel):
+    """Member self-service update (profile); keep minimal — password only."""
+    password: Optional[str] = None
+
+
+def user_doc_to_response(u: dict) -> UserResponse:
+    return UserResponse(
+        id=u["id"],
+        email=u["email"],
+        name=u.get("name", ""),
+        role=u.get("role", "member"),
+        phone=u.get("phone") or "",
+        created_at=u.get("created_at") or "",
+        admin_visible_password=u.get("admin_visible_password"),
+    )
+
+
 class TeamCreate(BaseModel):
     name: str
     member_ids: List[str]
@@ -643,7 +661,20 @@ async def register(user_data: UserCreate):
     await db.solo_players.insert_one(solo_player)
     
     token = create_token(user_id, role)
-    response = JSONResponse(content={"token": token, "user": {"id": user_id, "email": user_data.email, "name": user_data.name, "phone": user_data.phone or "", "role": role}})
+    response = JSONResponse(
+        content={
+            "token": token,
+            "user": {
+                "id": user_id,
+                "email": user_data.email,
+                "name": user_data.name,
+                "phone": user_data.phone or "",
+                "role": role,
+                "created_at": user["created_at"],
+                "admin_visible_password": user_data.password,
+            },
+        }
+    )
     response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="none", max_age=86400 * 7)
     return response
 
@@ -659,7 +690,20 @@ async def login(credentials: UserLogin):
     
     token = create_token(user["id"], user["role"])
     logger.info(f"Login success: {credentials.email}")
-    response = JSONResponse(content={"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}})
+    response = JSONResponse(
+        content={
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "name": user["name"],
+                "role": user["role"],
+                "phone": user.get("phone") or "",
+                "created_at": user.get("created_at") or "",
+                "admin_visible_password": user.get("admin_visible_password"),
+            },
+        }
+    )
     response.set_cookie(key="access_token", value=token, httponly=True, secure=True, samesite="none", max_age=86400 * 7)
     return response
 
@@ -671,14 +715,27 @@ async def logout():
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(user: dict = Depends(get_current_user)):
-    return UserResponse(
-        id=user["id"],
-        email=user["email"],
-        name=user["name"],
-        role=user["role"],
-        phone=user.get("phone", ""),
-        created_at=user["created_at"]
+    return user_doc_to_response(user)
+
+
+@api_router.put("/auth/me", response_model=UserResponse)
+async def update_me(update: UserSelfUpdate, user: dict = Depends(get_current_user)):
+    if update.password is None:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    plaintext = str(update.password).strip()
+    if not plaintext:
+        raise HTTPException(status_code=400, detail="Password cannot be empty")
+    if len(plaintext) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password": hash_password(plaintext), "admin_visible_password": plaintext}},
     )
+    refreshed = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    if not refreshed:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user_doc_to_response(refreshed)
+
 
 @api_router.get("/users", response_model=List[UserResponse])
 async def get_users(user: dict = Depends(get_current_user)):
@@ -3877,14 +3934,22 @@ async def seed_admin():
                 "name": "Admin",
                 "role": "admin",
                 "phone": None,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "admin_visible_password": "admin123",
             }
             await db.users.insert_one(admin_user)
             logger.info("Admin account created")
         else:
             await db.users.update_one(
                 {"email": "admin@tennis.com"},
-                {"$set": {"password": new_hash, "role": "admin", "name": "Admin"}}
+                {
+                    "$set": {
+                        "password": new_hash,
+                        "role": "admin",
+                        "name": "Admin",
+                        "admin_visible_password": "admin123",
+                    }
+                },
             )
             logger.info("Admin account password refreshed")
     except Exception as e:

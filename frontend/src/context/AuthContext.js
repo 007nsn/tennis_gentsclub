@@ -33,6 +33,19 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
+        getMe()
+            .then((res) => {
+                setUser(res.data);
+                localStorage.setItem('user', JSON.stringify(res.data));
+            })
+            .catch(() => {});
+    }, []);
+
+    const refreshUser = useCallback(async () => {
+        const res = await getMe();
+        setUser(res.data);
+        localStorage.setItem('user', JSON.stringify(res.data));
+        return res.data;
     }, []);
 
     const logout = useCallback(() => {
@@ -44,8 +57,8 @@ export const AuthProvider = ({ children }) => {
     const isAdmin = user?.role === 'admin';
 
     const value = useMemo(
-        () => ({ user, loading, loginUser, logout, isAdmin }),
-        [user, loading, loginUser, logout, isAdmin]
+        () => ({ user, loading, loginUser, logout, isAdmin, refreshUser }),
+        [user, loading, loginUser, logout, isAdmin, refreshUser]
     );
 
     return (

@@ -128,12 +128,14 @@ export const Layout = ({ children }) => {
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end" className="w-48">
-                                            <DropdownMenuItem asChild>
-                                                <Link to="/profile" className="flex items-center gap-2" data-testid="profile-link">
-                                                    <User className="w-4 h-4" />
-                                                    Profile
-                                                </Link>
-                                            </DropdownMenuItem>
+                                            {!isAdmin && (
+                                                <DropdownMenuItem asChild>
+                                                    <Link to="/profile" className="flex items-center gap-2" data-testid="profile-link">
+                                                        <User className="w-4 h-4" />
+                                                        Profile
+                                                    </Link>
+                                                </DropdownMenuItem>
+                                            )}
                                             <DropdownMenuItem asChild>
                                                 <Link to="/submit-result" className="flex items-center gap-2" data-testid="submit-result-link">
                                                     <Trophy className="w-4 h-4" />
